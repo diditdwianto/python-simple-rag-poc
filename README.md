@@ -80,3 +80,32 @@ Metadata to store with each chunk:
 
 Notes
 - Retrieval can only even return chunks we created. If a question's answer is split across two badly-cut chunks, no amount of LLM quality will fix it (the model never sees the whole answer)
+
+How a chunk is stored
+- Each chunk become one Redis key holding several fields (because Redis isn't natively a 'vector DB')
+    - embedding   = <383 float32 bytes>
+    - content     = "The revenue grew 20% in Q4 ..."
+    - source      = "annual_report_2025.pdf"
+    - chunk_index = 42
+- Format: HASH (flat fields, most memory-efficient)
+- The index: FT.CREATE
+    - We define an index once that tells Redis which field exists and how to search them
+    - The vector field is the important one.
+    - Conceptually (this is only an example for understanding, not as deliverable):
+        - FT.CREATE chunk_idx
+            ON HASH PREFIX 1 chunk:
+            SCHEMA
+              embedding    VECTOR FLAT 6 TYPE FLOAT32 DIM 384 DISTANCE_METRIC COSINE
+              content      TEXT
+              source       TAG
+              chunk_index  NUMERIC
+        - Why FLAT?
+            - For PoC purpose, thousands of chunks on Macbook laptop would be an instant, gives exact result, and zero tuning.
+            - Accuracy: Exact (always the true top-k)
+            - Memory usage: lower than HNSW
+            - Speed: Slower as data grows
+        - Why COSINE as DISTANCE_METRIC (how 'similarity' is measured between two vectors')?
+            - COSINE: angle between vectors (ignores magnitude). Our bge-small produces small embeddings, and cosine is the metric these models are trained and benchmarked on. This is the safe, standard match.
+            - IP: inner product / dot product
+            - L2: Euclidean distabce 
+        - DIM 384: must match bge-small output, otherwise index cration or insert fail

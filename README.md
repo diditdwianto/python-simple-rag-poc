@@ -3,8 +3,10 @@
 This is a simple POC for RAG using Python and other tech stack.
 
 ## Tech Stack
-- Vector Store: Redis Stack (redisvl + redis-py)
-- Embeddings: An embedding model (e.g. OpenAI text-embedding-3-small, or a local sentence-transformers model )
+- Vector Store: Redis Stack (redisvl + redis-py) via Docker
+- Embeddings: Local sentence-transformer
+    - BAAI/bge-small-en-v1.5 - 328 dimentions, strong retrieval quality, ~130 MB
+    - all-MiniLM-L6-v2: 384 dimention, classic lightweight baseline, very fast
 - LLM (generation): <to be decided later>
 - Orchestration: Plain python first; then add LangChain/Llamaindex only if we want abstraction
 
@@ -56,3 +58,25 @@ This is a simple POC for RAG using Python and other tech stack.
 
   Trade-off to know: Redis holds vectors in RAM, so for very large corpora (tens of millions of chunks) memory cost
   is the main consideration. For a POC or small/medium production set, it's excellent.
+
+## Technical Details
+
+### Chunking Strategies
+
+Chosen:
+- Recursive splitting: Splits on a hierarchy of separators. Try to break on paragraph first; if a piece is still too big, then break on sentences; then on words. Keep natural units together while respecting our size cap.
+- Chunk size: ~400 tokens per chunk, ~60 tokens overlap (~15%)
+
+Other strategies not used: 
+- Fixed size (every N character / tokens): Cut mid sentence / mid word, crude
+- Sentence-based: Sentence may vary wildly in length, chunk size get uneven.
+- Structure-aware: split on document structure. Worth if want to ingest markdown.
+- Semantic chunking: use embeddings to detect topic shifts and cut there. Highest quality but overkill for a PoC
+
+Metadata to store with each chunk:
+- source: filename / URL (so we can cite it in the answer)
+- chunk_index: position within the document (lets us fetch neighbors later)
+- title / section: if available (improves filtering and citations)
+
+Notes
+- Retrieval can only even return chunks we created. If a question's answer is split across two badly-cut chunks, no amount of LLM quality will fix it (the model never sees the whole answer)

@@ -38,3 +38,21 @@ This is a simple POC for RAG using Python and other tech stack.
   3. Assemble a prompt: system instructions + the retrieved chunks as context + the user's question.
   4. Generate the answer with an LLM, instructing it to answer only from the provided context and cite sources.
 
+## Why REDIS?
+
+  Redis Stack (or Redis 8+) ships the vector search capability via the search module.
+  
+  Concretely Redis gives us:
+
+  - Vector storage + ANN search — store embeddings in hashes or JSON, create an index with HNSW or FLAT, and run
+  K-nearest-neighbor queries. This is the core of the retrieval step.
+  - Metadata filtering — combine vector similarity with tag/numeric filters (e.g. "only docs from 2024").
+  - Hybrid search — full-text (BM25) + vector in one query.
+  - Caching — Redis's original strength. Two useful layers: a semantic cache (return a stored answer when a new
+  question is semantically near a previous one) and an embedding cache (avoid re-embedding identical text).
+  - Speed — in-memory, very low latency.
+
+  The official redis Python client plus redisvl (Redis Vector Library) make this ergonomic.
+
+  Trade-off to know: Redis holds vectors in RAM, so for very large corpora (tens of millions of chunks) memory cost
+  is the main consideration. For a POC or small/medium production set, it's excellent.

@@ -2,12 +2,40 @@
 
 This is a simple POC for RAG using Python and other tech stack.
 
+## Quickstart (how to run)
+
+```bash
+# 1. virtualenv
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. dependencies
+pip install -r requirements.txt
+
+# 3. Groq API key (free, from https://console.groq.com)
+cp .env.example .env       # then edit .env and set GROQ_API_KEY=...
+
+# 4. start Redis Stack (host port 6380; 6379 is often used by other projects)
+docker compose up -d
+
+# 5. ingest the docs in data/
+python -m src.ingest
+
+# 6. ask a question
+python -m src.query "What vector index types does Redis support?"
+```
+
+An out-of-corpus question returns: `I don't have enough information to answer that.`
+Put your own `.txt` / `.md` files in `data/` and re-run `python -m src.ingest`.
+
+See `CLAUDE.md` for the architecture and `TASKS.md` for the build breakdown.
+
 ## Tech Stack
 - Vector Store: Redis Stack (redisvl + redis-py) via Docker
 - Embeddings: Local sentence-transformer
     - BAAI/bge-small-en-v1.5 - 328 dimentions, strong retrieval quality, ~130 MB
     - all-MiniLM-L6-v2: 384 dimention, classic lightweight baseline, very fast
-- LLM (generation): <to be decided later>
+- LLM (generation): `llama-3.1-8b-instant` via Groq (free tier) — pluggable backend
 - Orchestration: Plain python first; then add LangChain/Llamaindex only if we want abstraction
 
 ## The minimal flow in one picture

@@ -6,7 +6,8 @@ work before building the rest of the RAG pipeline.
 
 Usage:
     pip install groq python-dotenv
-    python test-script/llm-call-test.py
+    python test-script/llm-call-test.py                 # uses the default prompt
+    python test-script/llm-call-test.py "Your prompt"   # uses your prompt
 """
 
 import os
@@ -37,7 +38,8 @@ def main() -> None:
 
     client = Groq(api_key=api_key)
 
-    prompt = "Reply with one short sentence confirming you are working."
+    default_prompt = "Reply with one short sentence confirming you are working."
+    prompt = sys.argv[1] if len(sys.argv) > 1 else default_prompt
 
     print(f"Model:  {MODEL}")
     print(f"Prompt: {prompt}\n")

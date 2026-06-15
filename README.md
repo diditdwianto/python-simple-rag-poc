@@ -31,16 +31,16 @@ Put your own `.txt` / `.md` files in `data/` and re-run `python -m src.ingest`.
 
 ## Source files (`src/`)
 
-Each module has a single responsibility. The two **entry points** you run are
+Each module has a single responsibility. The two **entry points** you need to run are
 `ingest.py` and `query.py`; everything else is a library they compose.
 
 | File | What it's about |
 |------|-----------------|
-| `config.py` | Central configuration. All tunables live here — embedding model & dimension, the bge query prefix, chunk size/overlap, Redis URL & index name, the retrieval `TOP_K` and distance threshold, and the Groq model. Every other module imports its settings from this file, so you change behavior in one place. |
+| `config.py` | Central configuration. All tunables live here - embedding model & dimension, the bge query prefix, chunk size/overlap, Redis URL & index name, the retrieval `TOP_K` and distance threshold, and the Groq model. Every other module imports its settings from this file, so you change behavior in one place. |
 | `chunking.py` | Splits a document's text into overlapping chunks with a recursive character splitter (breaks on paragraphs → sentences → words). Chunks are sized to stay under the embedder's token limit. Exposes `chunk_text(text) -> list[str]`. |
 | `embeddings.py` | Turns text into 384-dim vectors using the local `bge-small` model. Handles bge's query/document asymmetry: `embed_documents()` embeds chunks with **no prefix**; `embed_query()` prepends the query prefix. Both return normalized vectors. Same model for indexing and querying. |
 | `store.py` | The Redis vector store (via `redisvl`). Defines the index schema and provides `create_index()` (build/reset the index), `add_chunks()` (store vectors + text + metadata, converting floats to bytes), and `search()` (KNN, returns hits with `vector_distance`). This is the retrieval layer. |
-| `generate.py` | The LLM backend (generation step). Builds the grounded system prompt and sends context + question to Groq (`llama-3.1-8b-instant`) via `generate(user_prompt)  str`. Written as a **pluggable** backend — swapping to a local model later means changing only this file. |
+| `generate.py` | The LLM backend (generation step). Builds the grounded system prompt and sends context + question to Groq (`llama-3.1-8b-instant`) via `generate(user_prompt)  str`. Written as a **pluggable** backend - swapping to a local model later means changing only this file. |
 | `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/`, chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
 | `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks, applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. |
 | `__init__.py` | Empty file that marks `src/` as a Python package (so `python -m src.ingest` works). |
@@ -53,7 +53,7 @@ Each module has a single responsibility. The two **entry points** you run are
 - Embeddings: Local sentence-transformer
     - BAAI/bge-small-en-v1.5 - 328 dimentions, strong retrieval quality, ~130 MB
     - all-MiniLM-L6-v2: 384 dimention, classic lightweight baseline, very fast
-- LLM (generation): `llama-3.1-8b-instant` via Groq (free tier) — pluggable backend
+- LLM (generation): `llama-3.1-8b-instant` via Groq (free tier) - pluggable backend
 - Orchestration: Plain python first; then add LangChain/Llamaindex only if we want abstraction
 
 ## The minimal flow in one picture
@@ -67,17 +67,16 @@ Each module has a single responsibility. The two **entry points** you run are
 
 ## How the architecture works
 
-### Phase 1 — Indexing (offline, done once / on update):
+### Phase 1 - Indexing (offline, done once / on update):
   
   Documents → Chunk into pieces → Embed each chunk → Store vectors + text in a DB
 
   1. Load your source docs (PDFs, markdown, DB rows, etc.).
-  2. Chunk them into small pieces (e.g. 300–800 tokens). Chunking matters a lot — too big and retrieval is noisy, too
-  small and you lose context.
+  2. Chunk them into small pieces (e.g. 300–800 tokens). Chunking matters a lot - too big and retrieval is noisy, too small and you lose context.
   3. Embed each chunk: an embedding model turns text into a vector (a list of floats) that captures meaning.
   4. Store each vector alongside its original text and metadata in a vector store.
 
-### Phase 2 — Retrieval + Generation (online, per user question):
+### Phase 2 - Retrieval + Generation (online, per user question):
 
   Question → Embed → Vector search (top-k similar chunks) → Build prompt → LLM → Answer
 
@@ -92,18 +91,63 @@ Each module has a single responsibility. The two **entry points** you run are
   
   Concretely Redis gives us:
 
-  - Vector storage + ANN search — store embeddings in hashes or JSON, create an index with HNSW or FLAT, and run
+  - Vector storage + ANN search - store embeddings in hashes or JSON, create an index with HNSW or FLAT, and run
   K-nearest-neighbor queries. This is the core of the retrieval step.
-  - Metadata filtering — combine vector similarity with tag/numeric filters (e.g. "only docs from 2024").
-  - Hybrid search — full-text (BM25) + vector in one query.
-  - Caching — Redis's original strength. Two useful layers: a semantic cache (return a stored answer when a new
+  - Metadata filtering - combine vector similarity with tag/numeric filters (e.g. "only docs from 2024").
+  - Hybrid search - full-text (BM25) + vector in one query.
+  - Caching - Redis's original strength. Two useful layers: a semantic cache (return a stored answer when a new
   question is semantically near a previous one) and an embedding cache (avoid re-embedding identical text).
-  - Speed — in-memory, very low latency.
+  - Speed - in-memory, very low latency.
 
   The official redis Python client plus redisvl (Redis Vector Library) make this ergonomic.
 
   Trade-off to know: Redis holds vectors in RAM, so for very large corpora (tens of millions of chunks) memory cost
   is the main consideration. For a POC or small/medium production set, it's excellent.
+
+## Why Groq (for the LLM / generation step)?
+
+The goal was the **cheapest** setup with **no credit card**. The generation step
+needs a programmatic API the app can call - and that ruled out the obvious
+options:
+
+  - A **Claude Pro** subscription and an **OpenCode** subscription are interactive
+    tools; neither exposes an API key a backend can call.
+  - **Google AI Studio (Gemini)** free tier returned `limit: 0` - the free tier
+    isn't available in my region without enabling billing (a credit card).
+
+**Groq** fit every constraint:
+
+  - **Free tier, no credit card** - you just need to create an API key at console.groq.com. Super easy, instant use haha.
+  - **Hosted** - no local compute spent on generation (embeddings already run
+    locally on the Mac; offloading the LLM keeps RAM free).
+  - **Fast** - Groq runs models on its LPU hardware, so responses are very low
+    latency, which makes the POC feel snappy.
+  - **OpenAI-compatible API** via the official `groq` Python SDK - simple to call,
+    easy to swap.
+
+  Trade-offs: as a hosted service your context leaves the machine (use a
+  non-sensitive corpus, or switch to a local model for privacy), and the free tier
+  is rate-limited (its fine for PoC purpose, and actually the free tier limit is already A LOT).
+
+## Why `llama-3.1-8b-instant`?
+
+  - **Small, fast, cheap** - an 8B instruction-tuned model matches the "cheapest /
+    lightest" goal and returns answers quickly.
+  - **Good enough for RAG** - in a RAG pipeline the model's job is narrow: read the
+    retrieved chunks and synthesize a grounded answer. The hard part (finding the
+    right text) is done by retrieval, so a small instruct model performs well; you
+    don't need a frontier model to answer from supplied context.
+  - **Available and stable on Groq** - I was originally wanted a Gemma model, but Groq
+    decommissioned `gemma2-9b-it`. Listing the account's live models showed
+    `llama-3.1-8b-instant` as a small, current, well-supported option, so I use it.
+  - **Pluggable** - generation lives entirely in `src/generate.py` behind a single
+    `generate()` function. Swapping models (or moving to a local model like Ollama
+    + Gemma) means changing only that file and the `GEN_MODEL` value in
+    `src/config.py`; the rest of the pipeline is unaffected.
+
+  To change the model, update `GEN_MODEL` in `src/config.py`. Current Groq model
+  IDs are listed at https://console.groq.com/docs/models (they change over time as
+  models are added or retired).
 
 ## Technical Details
 

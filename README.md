@@ -28,7 +28,25 @@ python -m src.query "What vector index types does Redis support?"
 An out-of-corpus question returns: `I don't have enough information to answer that.`
 Put your own `.txt` / `.md` files in `data/` and re-run `python -m src.ingest`.
 
-See `CLAUDE.md` for the architecture and `TASKS.md` for the build breakdown.
+
+## Source files (`src/`)
+
+Each module has a single responsibility. The two **entry points** you run are
+`ingest.py` and `query.py`; everything else is a library they compose.
+
+| File | What it's about |
+|------|-----------------|
+| `config.py` | Central configuration. All tunables live here — embedding model & dimension, the bge query prefix, chunk size/overlap, Redis URL & index name, the retrieval `TOP_K` and distance threshold, and the Groq model. Every other module imports its settings from this file, so you change behavior in one place. |
+| `chunking.py` | Splits a document's text into overlapping chunks with a recursive character splitter (breaks on paragraphs → sentences → words). Chunks are sized to stay under the embedder's token limit. Exposes `chunk_text(text) -> list[str]`. |
+| `embeddings.py` | Turns text into 384-dim vectors using the local `bge-small` model. Handles bge's query/document asymmetry: `embed_documents()` embeds chunks with **no prefix**; `embed_query()` prepends the query prefix. Both return normalized vectors. Same model for indexing and querying. |
+| `store.py` | The Redis vector store (via `redisvl`). Defines the index schema and provides `create_index()` (build/reset the index), `add_chunks()` (store vectors + text + metadata, converting floats to bytes), and `search()` (KNN, returns hits with `vector_distance`). This is the retrieval layer. |
+| `generate.py` | The LLM backend (generation step). Builds the grounded system prompt and sends context + question to Groq (`llama-3.1-8b-instant`) via `generate(user_prompt)  str`. Written as a **pluggable** backend — swapping to a local model later means changing only this file. |
+| `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/`, chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
+| `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks, applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. |
+| `__init__.py` | Empty file that marks `src/` as a Python package (so `python -m src.ingest` works). |
+
+**Flow:** `ingest.py` uses `chunking` + `embeddings` + `store`; `query.py` uses
+`embeddings` + `store` + `generate`; all of them read from `config`.
 
 ## Tech Stack
 - Vector Store: Redis Stack (redisvl + redis-py) via Docker

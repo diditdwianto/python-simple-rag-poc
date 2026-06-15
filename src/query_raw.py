@@ -6,7 +6,7 @@ chunk_index, and full content, and which ones pass the distance threshold.
 Run:  python -m src.query_raw "your question"
 """
 
-import sys
+import argparse
 
 from src import config
 from src.embeddings import embed_query
@@ -14,12 +14,20 @@ from src.store import search
 
 
 def main() -> None:
-    question = sys.argv[1] if len(sys.argv) > 1 else input("Question: ")
+    parser = argparse.ArgumentParser(description="Inspect raw retrieval (no LLM).")
+    parser.add_argument("question", nargs="?", help="the query text")
+    parser.add_argument(
+        "--source", help="restrict retrieval to a single source file, e.g. rainbowcandy.md"
+    )
+    args = parser.parse_args()
 
+    question = args.question or input("Question: ")
     qvec = embed_query(question)
-    hits = search(qvec, k=config.TOP_K)
+    hits = search(qvec, k=config.TOP_K, source=args.source)
 
     print(f"Query: {question}")
+    if args.source:
+        print(f"Filter: source == {args.source}")
     print(f"Top {config.TOP_K} hits  (MAX_DISTANCE = {config.MAX_DISTANCE}, lower distance = closer)\n")
 
     if not hits:

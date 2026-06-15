@@ -6,6 +6,7 @@ treat it as a similarity score.
 
 from redisvl.index import SearchIndex
 from redisvl.query import VectorQuery
+from redisvl.query.filter import Tag
 from redisvl.redis.utils import array_to_buffer
 
 from src import config
@@ -66,14 +67,23 @@ def add_chunks(records: list[dict]) -> None:
     get_index().load(payload)
 
 
-def search(query_vector: list[float], k: int = config.TOP_K) -> list[dict]:
-    """KNN search. Return content, source, chunk_index, vector_distance (lower = closer)."""
+def search(
+    query_vector: list[float],
+    k: int = config.TOP_K,
+    source: str | None = None,
+) -> list[dict]:
+    """KNN search. Return content, source, chunk_index, vector_distance (lower = closer).
+
+    If `source` is given, the search is restricted to chunks from that file
+    (metadata filtering: vector similarity combined with a tag filter).
+    """
     query = VectorQuery(
         vector=query_vector,
         vector_field_name="embedding",
         num_results=k,
         return_fields=["content", "source", "chunk_index"],
         return_score=True,
+        filter_expression=(Tag("source") == source) if source else None,
     )
     results = get_index().query(query)
     return [

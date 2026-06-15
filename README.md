@@ -36,6 +36,43 @@ python -m src.query "What vector index types does Redis support?"
 An out-of-corpus question returns: `I don't have enough information to answer that.`
 Put your own `.txt` / `.md` files in `data/` and re-run `python -m src.ingest`.
 
+## Usage — three ways to use it
+
+After ingesting (`python -m src.ingest`), there are three ways to query:
+
+### 1. Ask a question (full RAG answer)
+
+```bash
+python -m src.query "What flavors does RainbowCandy have?"
+```
+
+Embeds the question → retrieves the closest chunks → sends them to the LLM →
+returns a concise, **source-cited** answer. Off-topic questions return
+`I don't have enough information to answer that.`
+
+### 2. Inspect raw retrieval (no LLM)
+
+```bash
+python -m src.query_raw "What flavors does RainbowCandy have?"
+```
+
+Shows exactly what Redis returns — each hit's **distance, source, chunk_index,
+and full text**, marked `KEEP`/`drop` against the distance threshold. Needs no
+Groq key. Use it to debug retrieval and tune `TOP_K` / `MAX_DISTANCE` in
+`src/config.py`.
+
+### 3. Filter by source (metadata filtering)
+
+```bash
+# restrict the search to a single document (vector similarity + tag filter)
+python -m src.query     "what is sold?" --source rainbowcandy.md
+python -m src.query_raw "what is sold?" --source indo-trader-sales.md
+```
+
+The `--source` flag works on both `query` and `query_raw`. It combines vector
+similarity with a `source` tag filter, so only chunks from that file are
+considered. Run `python -m src.query --help` to see all options.
+
 
 ## Source files (`src/`)
 
@@ -50,8 +87,8 @@ Each module has a single responsibility. The two **entry points** you need to ru
 | `store.py` | The Redis vector store (via `redisvl`). Defines the index schema and provides `create_index()` (build/reset the index), `add_chunks()` (store vectors + text + metadata, converting floats to bytes), and `search()` (KNN, returns hits with `vector_distance`). This is the retrieval layer. |
 | `generate.py` | The LLM backend (generation step). Builds the grounded system prompt and sends context + question to Groq (`llama-3.1-8b-instant`) via `generate(user_prompt)  str`. Written as a **pluggable** backend - swapping to a local model later means changing only this file. |
 | `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/`, chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
-| `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks, applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. |
-| `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Embeds the question, runs the KNN search, and prints each raw hit (distance, source, chunk_index, full chunk text) marked `KEEP`/`drop` against the distance threshold. Needs no Groq key. Useful for inspecting retrieval and tuning `TOP_K` / `MAX_DISTANCE`. Run with `python -m src.query_raw "..."`. |
+| `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks, applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
+| `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Embeds the question, runs the KNN search, and prints each raw hit (distance, source, chunk_index, full chunk text) marked `KEEP`/`drop` against the distance threshold. Needs no Groq key. Useful for inspecting retrieval and tuning `TOP_K` / `MAX_DISTANCE`. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
 | `__init__.py` | Empty file that marks `src/` as a Python package (so `python -m src.ingest` works). |
 
 **Flow:** `ingest.py` uses `chunking` + `embeddings` + `store`; `query.py` uses

@@ -1,6 +1,6 @@
 # Python Simple RAG PoC
 
-This is a simple POC for RAG using Python and other tech stack.
+This is a simple POC for RAG using Redis and Python.
 
 ## Quickstart (how to run)
 

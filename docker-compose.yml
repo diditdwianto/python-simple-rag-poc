@@ -1,0 +1,6 @@
+services:
+  redis:
+    image: redis/redis-stack:latest
+    ports:
+      - "6380:6379"   # Redis on host 6380 (6379 is used by another project)
+      - "8001:8001"   # RedisInsight UI (optional)

@@ -12,7 +12,7 @@ from flask import Flask, jsonify, render_template, request
 from src import config
 from src.embeddings import embed_query
 from src.store import create_index, search
-from src.generate import generate
+from src.generate import generate, SYSTEM_PROMPT
 
 load_dotenv()
 
@@ -64,6 +64,10 @@ def query():
             "answer": answer,
             "sources": sources,
             "context": context_data,
+            "prompt": {
+                "system": SYSTEM_PROMPT,
+                "user": user_prompt,
+            },
         })
     except Exception as exc:
         traceback.print_exc()

@@ -213,17 +213,13 @@
       position: sticky;
       bottom: 0;
       background: var(--bg);
-      padding: 16px 0 0 0;
+      padding: 24px 0 0 0;
       border-top: none;
-    }
-    .input-wrapper {
-      flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
     }
-    .input-wrapper input, .input-wrapper textarea {
-      width: 100%;
+    .input-area textarea {
       padding: 16px 20px;
       background: var(--surface);
       border: 1px solid var(--border);
@@ -233,25 +229,37 @@
       line-height: 1.5;
       outline: none;
       transition: border-color 0.2s;
-    }
-    .input-wrapper textarea:focus, .input-wrapper input:focus {
-      border-color: var(--primary);
-    }
-    .input-wrapper textarea {
       resize: none;
       min-height: 56px;
       max-height: 200px;
       font-family: inherit;
     }
-    .input-wrapper input {
-      padding: 10px 20px;
-      border-radius: 12px;
-      font-size: 0.85rem;
+    .input-area textarea:focus {
+      border-color: var(--primary);
     }
-    .input-wrapper .hint {
+    .source-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .source-row input {
+      padding: 10px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--text);
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.2s;
+      flex: 1;
+    }
+    .source-row input:focus {
+      border-color: var(--primary);
+    }
+    .hint {
       font-size: 0.75rem;
       color: var(--text-muted);
-      margin-left: 4px;
+      white-space: nowrap;
     }
 
     .empty-state {
@@ -297,7 +305,7 @@
 </head>
 <body>
   <header>
-    <h1><span>RAG</span> POC</h1>
+    <h1><span>Python-Redis</span> RAG POC</h1>
     <div class="header-actions">
       <button class="btn" id="btn-status" onclick="checkStatus()">Check Status</button>
       <button class="btn" id="btn-ingest" onclick="runIngest()">Re-ingest Docs</button>
@@ -319,8 +327,8 @@
     </div>
 
     <div class="input-area">
-      <div class="input-wrapper">
-        <textarea id="question-input" placeholder="Type your question..." rows="2" autofocus></textarea>
+      <textarea id="question-input" placeholder="Type your question..." rows="2" autofocus></textarea>
+      <div class="source-row">
         <span class="hint">Optional: filter by source filename</span>
         <input type="text" id="source-input" placeholder="e.g. coffee-brewing-guide.md" />
       </div>
@@ -404,6 +412,13 @@
             for (const c of data.context) {
               html += '<div class="context-chunk"><div class="chunk-meta">' + escapeHtml(c.source) + ' &middot; chunk #' + c.chunk_index + ' &middot; distance: ' + c.distance + '</div>' + escapeHtml(c.content) + '</div>';
             }
+            html += '</div></details>';
+          }
+          if (data.prompt) {
+            html += '<details class="context-toggle"><summary>Show LLM prompt</summary>';
+            html += '<div class="context-chunks">';
+            html += '<div class="context-chunk"><div class="chunk-meta">System prompt</div>' + escapeHtml(data.prompt.system) + '</div>';
+            html += '<div class="context-chunk"><div class="chunk-meta">User prompt</div>' + escapeHtml(data.prompt.user) + '</div>';
             html += '</div></details>';
           }
           addMessage('answer', html);

@@ -29,18 +29,33 @@ docker compose up -d
 # 5. ingest the docs in data/
 python -m src.ingest
 
-# 6. ask a question
+# 6. ask a question (CLI)
 python -m src.query "What vector index types does Redis support?"
+
+# 7. or launch the web UI
+python -m src.app
+# then open http://localhost:5555
 ```
 
 An out-of-corpus question returns: `I don't have enough information to answer that.`
 Put your own `.txt` / `.md` files in `data/` and re-run `python -m src.ingest`.
 
-## Usage — three ways to use it
+## Usage
 
-After ingesting (`python -m src.ingest`), there are three ways to query:
+After ingesting (`python -m src.ingest`), there are four ways to query:
 
-### 1. Ask a question (full RAG answer)
+### 1. Web UI (recommended)
+
+```bash
+python -m src.app
+```
+
+Opens a dark-themed web interface at **http://localhost:5555** (port configurable
+in `src/config.py`). Type questions, see answers with source citations and
+expandable context chunks, filter by source file, re-ingest docs, and check
+index status — all from the browser.
+
+### 2. Ask a question (full RAG answer)
 
 ```bash
 python -m src.query "What flavors does RainbowCandy have?"
@@ -50,7 +65,7 @@ Embeds the question → retrieves the closest chunks → sends them to the LLM �
 returns a concise, **source-cited** answer. Off-topic questions return
 `I don't have enough information to answer that.`
 
-### 2. Inspect raw retrieval (no LLM)
+### 3. Inspect raw retrieval (no LLM)
 
 ```bash
 python -m src.query_raw "What flavors does RainbowCandy have?"
@@ -61,7 +76,7 @@ and full text**, marked `KEEP`/`drop` against the distance threshold. Needs no
 Groq key. Use it to debug retrieval and tune `TOP_K` / `MAX_DISTANCE` in
 `src/config.py`.
 
-### 3. Filter by source (metadata filtering)
+### 4. Filter by source (metadata filtering)
 
 ```bash
 # restrict the search to a single document (vector similarity + tag filter)
@@ -69,9 +84,10 @@ python -m src.query     "what is sold?" --source rainbowcandy.md
 python -m src.query_raw "what is sold?" --source indo-trader-sales.md
 ```
 
-The `--source` flag works on both `query` and `query_raw`. It combines vector
-similarity with a `source` tag filter, so only chunks from that file are
-considered. Run `python -m src.query --help` to see all options.
+The `--source` flag works on both `query` and `query_raw`. In the web UI, use
+the source filter input below the question box. It combines vector similarity
+with a `source` tag filter, so only chunks from that file are considered.
+Run `python -m src.query --help` to see all CLI options.
 
 
 ## Source files (`src/`)
@@ -89,12 +105,14 @@ Each module has a single responsibility. The two **entry points** you need to ru
 | `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/`, chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
 | `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks, applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
 | `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Embeds the question, runs the KNN search, and prints each raw hit (distance, source, chunk_index, full chunk text) marked `KEEP`/`drop` against the distance threshold. Needs no Groq key. Useful for inspecting retrieval and tuning `TOP_K` / `MAX_DISTANCE`. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
+| `app.py` | **Entry point** for the web UI. Flask app serving a dark-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Provides `/api/query` (POST — RAG query), `/api/ingest` (POST — re-ingest docs), and `/api/status` (GET — index health). Run with `python -m src.app`. |
 | `__init__.py` | Empty file that marks `src/` as a Python package (so `python -m src.ingest` works). |
 
 **Flow:** `ingest.py` uses `chunking` + `embeddings` + `store`; `query.py` uses
 `embeddings` + `store` + `generate`; all of them read from `config`.
 
 ## Tech Stack
+- **Web UI:** Flask (dark-themed chat interface at `localhost:5555`)
 - Vector Store: Redis Stack (redisvl + redis-py) via Docker
 - Embeddings: Local sentence-transformer
     - BAAI/bge-small-en-v1.5 - 328 dimentions, strong retrieval quality, ~130 MB

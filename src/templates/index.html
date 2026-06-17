@@ -43,13 +43,14 @@
     header h1 span { color: var(--primary); }
     .header-actions { display: flex; gap: 8px; }
     .btn {
-      padding: 8px 16px;
-      border-radius: 8px;
+      padding: 12px 20px;
+      border-radius: 12px;
       border: 1px solid var(--border);
       background: var(--surface2);
       color: var(--text);
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 0.9rem;
+      font-weight: 500;
       transition: all 0.15s;
     }
     .btn:hover { background: var(--border); }
@@ -100,8 +101,8 @@
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      padding-bottom: 20px;
+      gap: 20px;
+      padding: 8px 4px 20px 4px;
       min-height: 300px;
     }
 
@@ -117,40 +118,48 @@
     .msg-question {
       background: var(--surface2);
       border: 1px solid var(--border);
+      padding: 20px 28px;
+      font-size: 1rem;
+      line-height: 1.7;
     }
     .msg-question .label {
-      font-size: 0.75rem;
-      color: var(--primary);
-      font-weight: 600;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-weight: 500;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 6px;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
     }
     .msg-answer {
       background: var(--surface);
-      border: 1px solid var(--primary) / 0.3;
-      border-left: 3px solid var(--primary);
+      border: 1px solid rgba(108,140,255,0.2);
+      padding: 20px 28px;
+      font-size: 1rem;
+      line-height: 1.8;
     }
     .msg-answer .label {
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       color: var(--success);
-      font-weight: 600;
+      font-weight: 500;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 6px;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
     }
     .msg-error {
       background: #2d1518;
       border: 1px solid var(--error);
       border-left: 3px solid var(--error);
+      padding: 20px 28px;
+      font-size: 1rem;
+      line-height: 1.7;
     }
     .msg-error .label {
-      font-size: 0.75rem;
+      font-size: 0.7rem;
       color: var(--error);
-      font-weight: 600;
+      font-weight: 500;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 6px;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
     }
 
     .sources {
@@ -201,28 +210,29 @@
     }
 
     .input-area {
-      display: flex;
-      gap: 10px;
-      align-items: flex-end;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
+      position: sticky;
+      bottom: 0;
+      background: var(--bg);
+      padding: 16px 0 0 0;
+      border-top: none;
     }
     .input-wrapper {
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 8px;
     }
     .input-wrapper input, .input-wrapper textarea {
       width: 100%;
-      padding: 12px 16px;
+      padding: 16px 20px;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
+      border-radius: 16px;
       color: var(--text);
-      font-size: 0.95rem;
+      font-size: 1rem;
+      line-height: 1.5;
       outline: none;
-      transition: border-color 0.15s;
+      transition: border-color 0.2s;
     }
     .input-wrapper textarea:focus, .input-wrapper input:focus {
       border-color: var(--primary);
@@ -230,12 +240,18 @@
     .input-wrapper textarea {
       resize: none;
       min-height: 56px;
-      max-height: 180px;
+      max-height: 200px;
       font-family: inherit;
+    }
+    .input-wrapper input {
+      padding: 10px 20px;
+      border-radius: 12px;
+      font-size: 0.85rem;
     }
     .input-wrapper .hint {
       font-size: 0.75rem;
       color: var(--text-muted);
+      margin-left: 4px;
     }
 
     .empty-state {
@@ -270,12 +286,12 @@
       display: flex;
       align-items: center;
       gap: 4px;
-      padding: 16px 20px;
+      padding: 20px 28px;
       background: var(--surface);
       border-radius: var(--radius);
       border: 1px solid var(--border);
       color: var(--text-muted);
-      font-size: 0.9rem;
+      font-size: 0.95rem;
     }
   </style>
 </head>

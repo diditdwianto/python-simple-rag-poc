@@ -22,3 +22,7 @@ MAX_DISTANCE = 0.6    # cosine DISTANCE pre-filter; <= keep, > discard. Coarse g
 # Generation
 GEN_MODEL = "llama-3.1-8b-instant"   # Groq
 TEMPERATURE = 0.0
+
+# Web UI
+WEB_HOST = "0.0.0.0"
+WEB_PORT = 5555

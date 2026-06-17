@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG POC</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242734;
+      --border: #2e3144;
+      --text: #e4e6f0;
+      --text-muted: #8b8fa3;
+      --primary: #6c8cff;
+      --primary-hover: #8da6ff;
+      --success: #4ade80;
+      --error: #f87171;
+      --radius: 12px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+    header h1 span { color: var(--primary); }
+    .header-actions { display: flex; gap: 8px; }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.15s;
+    }
+    .btn:hover { background: var(--border); }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      max-width: 800px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .status-bar {
+      display: flex;
+      gap: 16px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .status-bar .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .dot.ok { background: var(--success); }
+    .dot.err { background: var(--error); }
+    .dot.loading { background: #facc15; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding-bottom: 20px;
+      min-height: 300px;
+    }
+
+    .message {
+      padding: 16px 20px;
+      border-radius: var(--radius);
+      line-height: 1.6;
+      max-width: 100%;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+    .msg-question {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .msg-question .label {
+      font-size: 0.75rem;
+      color: var(--primary);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+    .msg-answer {
+      background: var(--surface);
+      border: 1px solid var(--primary) / 0.3;
+      border-left: 3px solid var(--primary);
+    }
+    .msg-answer .label {
+      font-size: 0.75rem;
+      color: var(--success);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+    .msg-error {
+      background: #2d1518;
+      border: 1px solid var(--error);
+      border-left: 3px solid var(--error);
+    }
+    .msg-error .label {
+      font-size: 0.75rem;
+      color: var(--error);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+
+    .sources {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .sources .tag {
+      display: inline-block;
+      padding: 2px 10px;
+      margin: 2px 4px 2px 0;
+      font-size: 0.75rem;
+      background: var(--surface2);
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      color: var(--primary);
+    }
+
+    .context-toggle {
+      margin-top: 8px;
+    }
+    .context-toggle summary {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    .context-toggle summary:hover { color: var(--text); }
+    .context-chunks {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .context-chunk {
+      padding: 10px 14px;
+      background: var(--surface2);
+      border-radius: 8px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .context-chunk .chunk-meta {
+      font-size: 0.7rem;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+
+    .input-area {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .input-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .input-wrapper input, .input-wrapper textarea {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .input-wrapper textarea:focus, .input-wrapper input:focus {
+      border-color: var(--primary);
+    }
+    .input-wrapper textarea {
+      resize: none;
+      min-height: 56px;
+      max-height: 180px;
+      font-family: inherit;
+    }
+    .input-wrapper .hint {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .empty-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: var(--text-muted);
+      padding: 40px;
+    }
+    .empty-state h2 {
+      font-size: 1.1rem;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .empty-state p { font-size: 0.9rem; }
+
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 16px 20px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span>RAG</span> POC</h1>
+    <div class="header-actions">
+      <button class="btn" id="btn-status" onclick="checkStatus()">Check Status</button>
+      <button class="btn" id="btn-ingest" onclick="runIngest()">Re-ingest Docs</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="status-bar" id="status-bar">
+      <span><span class="dot loading" id="status-dot"></span><span id="status-text">Checking index&hellip;</span></span>
+    </div>
+
+    <div class="chat-area" id="chat-area">
+      <div class="empty-state" id="empty-state">
+        <div>
+          <h2>Ask a question</h2>
+          <p>Query your documents using RAG. Type a question below and press Enter or click Ask.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-wrapper">
+        <textarea id="question-input" placeholder="Type your question..." rows="2" autofocus></textarea>
+        <span class="hint">Optional: filter by source filename</span>
+        <input type="text" id="source-input" placeholder="e.g. coffee-brewing-guide.md" />
+      </div>
+      <button class="btn btn-primary" id="btn-ask" onclick="askQuestion()">Ask</button>
+    </div>
+  </main>
+
+  <script>
+    const chatArea = document.getElementById('chat-area');
+    const emptyState = document.getElementById('empty-state');
+    const questionInput = document.getElementById('question-input');
+    const sourceInput = document.getElementById('source-input');
+    const btnAsk = document.getElementById('btn-ask');
+    const btnIngest = document.getElementById('btn-ingest');
+
+    questionInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        askQuestion();
+      }
+    });
+
+    function hideEmpty() {
+      if (emptyState) emptyState.remove();
+    }
+
+    function addMessage(type, html) {
+      hideEmpty();
+      const div = document.createElement('div');
+      div.className = 'msg-' + type;
+      div.innerHTML = html;
+      chatArea.appendChild(div);
+      div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      return div;
+    }
+
+    function showTyping() {
+      hideEmpty();
+      const div = document.createElement('div');
+      div.className = 'typing-indicator';
+      div.id = 'typing';
+      div.innerHTML = '<span class="spinner"></span> Thinking&hellip;';
+      chatArea.appendChild(div);
+      div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
+    function removeTyping() {
+      const el = document.getElementById('typing');
+      if (el) el.remove();
+    }
+
+    async function askQuestion() {
+      const question = questionInput.value.trim();
+      if (!question) return;
+
+      questionInput.value = '';
+      addMessage('question', '<div class="label">You</div>' + escapeHtml(question));
+
+      btnAsk.disabled = true;
+      showTyping();
+
+      try {
+        const resp = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question, source: sourceInput.value.trim() || null }),
+        });
+        const data = await resp.json();
+        removeTyping();
+
+        if (data.error) {
+          addMessage('error', '<div class="label">Error</div>' + escapeHtml(data.error));
+        } else {
+          let html = '<div class="label">Answer</div>' + escapeHtml(data.answer);
+          if (data.sources && data.sources.length) {
+            html += '<div class="sources">Sources: ' + data.sources.map(s => '<span class="tag">' + escapeHtml(s) + '</span>').join('') + '</div>';
+          }
+          if (data.context && data.context.length) {
+            html += '<details class="context-toggle"><summary>Show retrieved context (' + data.context.length + ' chunks)</summary>';
+            html += '<div class="context-chunks">';
+            for (const c of data.context) {
+              html += '<div class="context-chunk"><div class="chunk-meta">' + escapeHtml(c.source) + ' &middot; chunk #' + c.chunk_index + ' &middot; distance: ' + c.distance + '</div>' + escapeHtml(c.content) + '</div>';
+            }
+            html += '</div></details>';
+          }
+          addMessage('answer', html);
+        }
+      } catch (err) {
+        removeTyping();
+        addMessage('error', '<div class="label">Error</div>' + escapeHtml(err.message));
+      }
+
+      btnAsk.disabled = false;
+      questionInput.focus();
+    }
+
+    async function checkStatus() {
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      dot.className = 'dot loading';
+      text.textContent = 'Checking index\u2026';
+      try {
+        const resp = await fetch('/api/status');
+        const data = await resp.json();
+        if (data.error) {
+          dot.className = 'dot err';
+          text.textContent = 'Error: ' + data.error;
+        } else {
+          dot.className = 'dot ok';
+          text.textContent = 'Index "' + data.index_name + '" \u2014 ' + data.total_docs + ' docs, ' + data.total_records + ' records';
+        }
+      } catch (err) {
+        dot.className = 'dot err';
+        text.textContent = 'Connection error: ' + err.message;
+      }
+    }
+
+    async function runIngest() {
+      btnIngest.disabled = true;
+      btnIngest.textContent = 'Ingesting\u2026';
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      dot.className = 'dot loading';
+      text.textContent = 'Re-indexing documents\u2026';
+      try {
+        const resp = await fetch('/api/ingest', { method: 'POST' });
+        const data = await resp.json();
+        if (data.error) {
+          addMessage('error', '<div class="label">Ingest Error</div>' + escapeHtml(data.error));
+        } else {
+          addMessage('answer', '<div class="label">Ingest</div>' + escapeHtml(data.message));
+        }
+      } catch (err) {
+        addMessage('error', '<div class="label">Error</div>' + escapeHtml(err.message));
+      }
+      btnIngest.disabled = false;
+      btnIngest.textContent = 'Re-ingest Docs';
+      checkStatus();
+    }
+
+    function escapeHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    checkStatus();
+  </script>
+</body>
+</html>

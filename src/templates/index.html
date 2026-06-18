@@ -456,7 +456,7 @@
           text.textContent = 'Error: ' + data.error;
         } else {
           dot.className = 'dot ok';
-          text.textContent = 'Index "' + data.index_name + '" \u2014 ' + data.total_docs + ' docs, ' + data.total_records + ' records';
+          text.textContent = 'Index "' + data.index_name + '" \u2014 ' + data.num_chunks + ' chunks, ' + data.num_index_records + ' indexed terms';
         }
       } catch (err) {
         dot.className = 'dot err';

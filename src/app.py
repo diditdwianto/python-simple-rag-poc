@@ -93,8 +93,8 @@ def status():
         info = idx.info()
         return jsonify({
             "index_name": config.INDEX_NAME,
-            "total_docs": info.get("num_docs", 0),
-            "total_records": info.get("num_records", 0),
+            "num_chunks": info.get("num_docs", 0),
+            "num_index_records": info.get("num_records", 0),
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500

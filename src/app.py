@@ -11,7 +11,7 @@ from flask import Flask, jsonify, render_template, request
 
 from src import config
 from src.embeddings import embed_query
-from src.store import create_index, search
+from src.store import create_index, fetch_all, search
 from src.generate import generate, SYSTEM_PROMPT
 
 load_dotenv()
@@ -69,6 +69,27 @@ def query():
                 "user": user_prompt,
             },
         })
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/data")
+def data_page():
+    return render_template("data.html")
+
+
+@app.route("/api/data", methods=["GET"])
+def api_data():
+    try:
+        chunks = fetch_all()
+        grouped = {}
+        for c in chunks:
+            s = c["source"]
+            if s not in grouped:
+                grouped[s] = []
+            grouped[s].append(c)
+        return jsonify({"chunks_by_source": grouped, "total_chunks": len(chunks)})
     except Exception as exc:
         traceback.print_exc()
         return jsonify({"error": str(exc)}), 500

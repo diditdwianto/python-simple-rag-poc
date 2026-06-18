@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG POC — All Data</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242734;
+      --border: #2e3144;
+      --text: #e4e6f0;
+      --text-muted: #8b8fa3;
+      --primary: #6c8cff;
+      --primary-hover: #8da6ff;
+      --radius: 12px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+    header h1 span { color: var(--primary); }
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.85rem;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+    .btn:hover { background: var(--border); }
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .summary {
+      padding: 12px 16px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin-bottom: 24px;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+    .summary strong { color: var(--text); }
+    .source-group { margin-bottom: 24px; }
+    .source-group h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    .source-group h2 .count {
+      font-weight: 400;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      margin-left: 8px;
+    }
+    .chunk {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 10px;
+    }
+    .chunk-meta {
+      font-size: 0.75rem;
+      color: var(--primary);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .chunk-content {
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .loading { color: var(--text-muted); padding: 40px; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span>Python-Redis</span> RAG POC — All Data</h1>
+    <a class="btn" href="/">Back to Chat</a>
+  </header>
+
+  <main>
+    <div class="summary" id="summary">Loading...</div>
+    <div id="content"></div>
+  </main>
+
+  <script>
+    async function loadData() {
+      try {
+        const resp = await fetch('/api/data');
+        const data = await resp.json();
+        if (data.error) {
+          document.getElementById('summary').textContent = 'Error: ' + data.error;
+          return;
+        }
+        const grouped = data.chunks_by_source;
+        const sources = Object.keys(grouped).sort();
+        document.getElementById('summary').innerHTML =
+          '<strong>' + data.total_chunks + '</strong> chunks across <strong>' + sources.length + '</strong> source files';
+
+        const container = document.getElementById('content');
+        for (const src of sources) {
+          const chunks = grouped[src];
+          const group = document.createElement('div');
+          group.className = 'source-group';
+          group.innerHTML = '<h2>' + escapeHtml(src) + '<span class="count">' + chunks.length + ' chunk' + (chunks.length > 1 ? 's' : '') + '</span></h2>';
+          for (const c of chunks) {
+            const div = document.createElement('div');
+            div.className = 'chunk';
+            div.innerHTML = '<div class="chunk-meta">Chunk #' + c.chunk_index + '</div><div class="chunk-content">' + escapeHtml(c.content) + '</div>';
+            group.appendChild(div);
+          }
+          container.appendChild(group);
+        }
+      } catch (err) {
+        document.getElementById('summary').textContent = 'Error: ' + err.message;
+      }
+    }
+
+    function escapeHtml(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    loadData();
+  </script>
+</body>
+</html>

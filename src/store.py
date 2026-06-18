@@ -67,6 +67,29 @@ def add_chunks(records: list[dict]) -> None:
     get_index().load(payload)
 
 
+def fetch_all() -> list[dict]:
+    """Return all chunks from the index, sorted by source then chunk_index."""
+    from redisvl.query import FilterQuery
+
+    idx = get_index()
+    query = FilterQuery(
+        filter_expression="*",
+        return_fields=["content", "source", "chunk_index"],
+        num_results=10000,
+    )
+    results = idx.query(query)
+    chunks = [
+        {
+            "content": r.get("content"),
+            "source": r.get("source"),
+            "chunk_index": int(r.get("chunk_index", 0)),
+        }
+        for r in results
+    ]
+    chunks.sort(key=lambda c: (c["source"], c["chunk_index"]))
+    return chunks
+
+
 def search(
     query_vector: list[float],
     k: int = config.TOP_K,

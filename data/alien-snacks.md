@@ -6,6 +6,20 @@ Food Expo on Nebulon Prime.
 
 ---
 
+## Menu — All Available Snacks
+
+| # | Snack | Human Equivalent | Key Flavor | Best Occasion |
+|---|-------|-----------------|-------------|----------------|
+| 1 | Zorbx | Pizza | Savory, cheesy, customizable | Cargo bay movie nights, post-mission debriefings |
+| 2 | Kryzzle | Burger | Rich umami, tangy zing-sauce | Mid-shift breaks, spaceport diners, victory celebrations |
+| 3 | Splink | Hotdog | Smoky, tangy, crunchy | Shuttle stops, pod-racing events, station deck parties |
+| 4 | Phuffin | Popcorn | Light, addictive, variety of coatings | Holo-cinema, command deck marathons, late-night gambling |
+| 5 | Flapjack Nebula-Stack | Pancake | Sweet, syrupy, fruity | Lazy mornings, crew birthdays, post-hypersleep meals |
+| 6 | Crispx | Potato chips / crisps | Bold, crunchy, savory or sweet | Anytime — card games, watch shifts, observation deck hangouts |
+| 7 | Moonscroll | Croissant / pastry roll | Flaky, buttery, delicate | Station café brunches, diplomatic breakfasts, weekend treats |
+
+---
+
 ## 1. Zorbx
 
 **Human equivalent:** Pizza

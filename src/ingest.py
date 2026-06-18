@@ -16,12 +16,19 @@ TEXT_SUFFIXES = {".txt", ".md"}
 
 
 def main() -> None:
+    from src import config
+
     load_dotenv()
     create_index(overwrite=True)
 
+    skipped = []
     total = 0
     for path in sorted(DATA_DIR.glob("*")):
         if path.suffix.lower() not in TEXT_SUFFIXES:
+            continue
+        if path.name.startswith(config.EXCLUDE_PREFIX):
+            skipped.append(path.name)
+            print(f"  [SKIP] {path.name} (excluded by prefix '{config.EXCLUDE_PREFIX}')")
             continue
 
         text = path.read_text(encoding="utf-8")
@@ -39,9 +46,11 @@ def main() -> None:
         ]
         add_chunks(records)
         total += len(records)
-        print(f"  {path.name}: {len(records)} chunks")
+        print(f"  [INGEST] {path.name}: {len(records)} chunks")
 
-    print(f"Total chunks stored: {total}")
+    print(f"\nTotal chunks stored: {total}")
+    if skipped:
+        print(f"Skipped {len(skipped)} file(s): {', '.join(skipped)}")
 
 
 if __name__ == "__main__":

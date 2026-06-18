@@ -26,3 +26,6 @@ TEMPERATURE = 0.0
 # Web UI
 WEB_HOST = "0.0.0.0"
 WEB_PORT = 5555
+
+# Ingestion
+EXCLUDE_PREFIX = "exclude-"

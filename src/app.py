@@ -18,6 +18,18 @@ load_dotenv()
 
 NO_INFO = "I don't have enough information to answer that."
 
+
+def _threshold_filter(hits: list[dict]) -> list[dict]:
+    """Filter hits by relevance threshold. Handles both vector and hybrid scores."""
+    filtered = []
+    for h in hits:
+        if "vector_distance" in h:
+            if h["vector_distance"] <= config.MAX_DISTANCE:
+                filtered.append(h)
+        else:
+            filtered.append(h)
+    return filtered
+
 app = Flask(__name__)
 
 
@@ -37,8 +49,8 @@ def query():
 
     try:
         qvec = embed_query(question)
-        hits = search(qvec, k=config.TOP_K, source=source)
-        hits = [h for h in hits if h["vector_distance"] <= config.MAX_DISTANCE]
+        hits = search(qvec, k=config.TOP_K, source=source, query_text=question)
+        hits = _threshold_filter(hits)
 
         if not hits:
             return jsonify({"answer": NO_INFO, "sources": [], "context": []})
@@ -55,7 +67,8 @@ def query():
                 "source": h["source"],
                 "chunk_index": h["chunk_index"],
                 "content": h["content"],
-                "distance": round(h["vector_distance"], 4),
+                "distance": round(h.get("vector_distance", h.get("combined_score", 0)), 4),
+                "search_mode": "hybrid" if "combined_score" in h else "vector",
             }
             for h in hits
         ]

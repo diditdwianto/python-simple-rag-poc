@@ -422,7 +422,7 @@
             html += '<details class="context-toggle"><summary>Show retrieved context (' + data.context.length + ' chunks)</summary>';
             html += '<div class="context-chunks">';
             for (const c of data.context) {
-              html += '<div class="context-chunk"><div class="chunk-meta">' + escapeHtml(c.source) + ' &middot; chunk #' + c.chunk_index + ' &middot; distance: ' + c.distance + '</div>' + escapeHtml(c.content) + '</div>';
+              html += '<div class="context-chunk"><div class="chunk-meta">' + escapeHtml(c.source) + ' &middot; chunk #' + c.chunk_index + ' &middot; ' + (c.search_mode === 'hybrid' ? 'score: ' + c.distance : 'distance: ' + c.distance) + '</div>' + escapeHtml(c.content) + '</div>';
             }
             html += '</div></details>';
           }

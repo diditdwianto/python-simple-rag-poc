@@ -17,7 +17,9 @@ INDEX_PREFIX = "chunk"
 # Retrieval
 TOP_K = 5
 MAX_DISTANCE = 0.6    # cosine DISTANCE pre-filter; <= keep, > discard. Coarse gate only —
-                      # the grounded prompt is the real guard against off-topic answers.
+                       # the grounded prompt is the real guard against off-topic answers.
+SEARCH_MODE = "hybrid"  # "vector" (pure vector KNN) or "hybrid" (BM25 + vector combined)
+HYBRID_ALPHA = 0.7      # weight of vector score in hybrid search (0.0 = text only, 1.0 = vector only)
 
 # Generation
 GEN_MODEL = "llama-3.1-8b-instant"   # Groq

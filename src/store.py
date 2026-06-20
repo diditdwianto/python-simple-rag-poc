@@ -1,11 +1,15 @@
-"""Redis vector index: create, store chunks, and KNN search (via redisvl).
+"""Redis vector index: create, store chunks, and search (via redisvl).
+
+Supports two search modes:
+- vector: pure KNN vector similarity search
+- hybrid: BM25 text search + vector similarity, combined with weighted scoring
 
 Note: redisvl returns `vector_distance` (cosine distance, lower = closer). Do NOT
 treat it as a similarity score.
 """
 
 from redisvl.index import SearchIndex
-from redisvl.query import VectorQuery
+from redisvl.query import FilterQuery, VectorQuery
 from redisvl.query.filter import Tag
 from redisvl.redis.utils import array_to_buffer
 
@@ -90,16 +94,124 @@ def fetch_all() -> list[dict]:
     return chunks
 
 
+def hybrid_search(
+    query_text: str,
+    query_vector: list[float],
+    k: int = config.TOP_K,
+    source: str | None = None,
+    alpha: float = config.HYBRID_ALPHA,
+) -> list[dict]:
+    """Hybrid BM25 text + vector search, combined in Python.
+
+    Runs a separate BM25 text query and vector KNN query, normalizes scores,
+    then merges with weighted combination: final = alpha * vec_score + (1-alpha) * text_score.
+
+    Alpha controls the blend: 0.0 = text only, 1.0 = vector only, 0.7 = mostly vector
+    with a text boost.
+    """
+    fetch_k = k * 3
+
+    text_hits = _text_search(query_text, source=source, k=fetch_k)
+    vec_hits = vector_search(query_vector, k=fetch_k, source=source)
+
+    text_scores = {h["id"]: h["text_score"] for h in text_hits}
+    vec_scores = {h["id"]: h["vec_score"] for h in vec_hits}
+    all_ids = set(text_scores.keys()) | set(vec_scores.keys())
+
+    content_map = {}
+    for h in text_hits:
+        content_map[h["id"]] = {"content": h["content"], "source": h["source"], "chunk_index": h["chunk_index"]}
+    for h in vec_hits:
+        content_map[h["id"]] = {"content": h["content"], "source": h["source"], "chunk_index": h["chunk_index"]}
+
+    def _normalize(scores: dict) -> dict:
+        if not scores:
+            return {}
+        min_s, max_s = min(scores.values()), max(scores.values())
+        rng = max_s - min_s if max_s != min_s else 1.0
+        return {k: (v - min_s) / rng for k, v in scores.items()}
+
+    norm_text = _normalize(text_scores)
+    norm_vec = _normalize(vec_scores)
+
+    combined = []
+    for doc_id in all_ids:
+        ts = norm_text.get(doc_id, 0.0)
+        vs = norm_vec.get(doc_id, 0.0)
+        score = alpha * vs + (1 - alpha) * ts
+        meta = content_map[doc_id]
+        combined.append({
+            "content": meta["content"],
+            "source": meta["source"],
+            "chunk_index": meta["chunk_index"],
+            "combined_score": round(score, 6),
+        })
+
+    combined.sort(key=lambda x: x["combined_score"], reverse=True)
+    return combined[:k]
+
+
+def _text_search(query_text: str, source: str | None = None, k: int = 20) -> list[dict]:
+    """BM25 full-text search on the content field."""
+    from redis import Redis
+    from redis.commands.search.query import Query as FTQuery
+
+    client = Redis.from_url(config.REDIS_URL, decode_responses=False)
+
+    escaped = query_text.replace("&", " ").replace("|", " ").replace("-", " ")
+    if source:
+        q_str = f"(@source:{{{source}}}) (@content:({escaped}))"
+    else:
+        q_str = f"@content:({escaped})"
+
+    ft_query = FTQuery(q_str).return_fields("content", "source", "chunk_index").with_scores().paging(0, k).dialect(2)
+    results = client.ft(config.INDEX_NAME.encode()).search(ft_query)
+
+    def _decode(v):
+        if isinstance(v, bytes):
+            return v.decode("utf-8", errors="replace")
+        return v
+
+    hits = []
+    for doc in results.docs:
+        doc_id = _decode(doc.id)
+        text_score = float(doc.score) if hasattr(doc, "score") else 0.0
+        src = _decode(doc.source) if hasattr(doc, "source") else ""
+        if src.endswith("\x00"):
+            src = src[:-1]
+
+        hits.append({
+            "id": doc_id,
+            "content": _decode(doc.content) if hasattr(doc, "content") else "",
+            "source": src,
+            "chunk_index": int(_decode(doc.chunk_index)) if hasattr(doc, "chunk_index") else 0,
+            "text_score": text_score,
+        })
+    return hits
+
+
 def search(
     query_vector: list[float],
     k: int = config.TOP_K,
     source: str | None = None,
+    query_text: str | None = None,
 ) -> list[dict]:
-    """KNN search. Return content, source, chunk_index, vector_distance (lower = closer).
+    """Search chunks. Dispatches to vector or hybrid based on config.SEARCH_MODE.
 
-    If `source` is given, the search is restricted to chunks from that file
-    (metadata filtering: vector similarity combined with a tag filter).
+    If query_text is provided and SEARCH_MODE is "hybrid", uses BM25+vector.
+    Otherwise falls back to pure vector KNN search.
     """
+    if config.SEARCH_MODE == "hybrid" and query_text:
+        return hybrid_search(query_text, query_vector, k=k, source=source)
+    return vector_search(query_vector, k=k, source=source)
+
+
+def vector_search(
+    query_vector: list[float],
+    k: int = config.TOP_K,
+    source: str | None = None,
+) -> list[dict]:
+    """Pure KNN vector search. Return content, source, chunk_index, vector_distance, vec_score."""
     query = VectorQuery(
         vector=query_vector,
         vector_field_name="embedding",
@@ -109,12 +221,17 @@ def search(
         filter_expression=(Tag("source") == source) if source else None,
     )
     results = get_index().query(query)
-    return [
-        {
+    hits = []
+    for r in results:
+        dist = float(r["vector_distance"])
+        # Convert cosine distance to similarity score (1 - distance), higher = better
+        vec_score = max(0.0, 1.0 - dist)
+        hits.append({
             "content": r.get("content"),
             "source": r.get("source"),
             "chunk_index": r.get("chunk_index"),
-            "vector_distance": float(r["vector_distance"]),
-        }
-        for r in results
-    ]
+            "vector_distance": dist,
+            "id": r.get("id", ""),
+            "vec_score": vec_score,
+        })
+    return hits

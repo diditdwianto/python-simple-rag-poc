@@ -19,12 +19,12 @@ def answer(question: str, source: str | None = None) -> str:
     """Full RAG query: embed question, retrieve, threshold, build prompt, generate.
 
     If `source` is given, retrieval is restricted to chunks from that file.
+    Uses hybrid search (BM25 + vector) when config.SEARCH_MODE is "hybrid".
     """
     qvec = embed_query(question)
-    hits = search(qvec, k=config.TOP_K, source=source)
+    hits = search(qvec, k=config.TOP_K, source=source, query_text=question)
 
-    # Keep only sufficiently-close hits; otherwise don't call the LLM.
-    hits = [h for h in hits if h["vector_distance"] <= config.MAX_DISTANCE]
+    hits = _threshold_filter(hits)
     if not hits:
         return NO_INFO
 
@@ -33,6 +33,18 @@ def answer(question: str, source: str | None = None) -> str:
     )
     user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
     return generate(user_prompt)
+
+
+def _threshold_filter(hits: list[dict]) -> list[dict]:
+    """Filter hits by relevance threshold. Handles both vector and hybrid scores."""
+    filtered = []
+    for h in hits:
+        if "vector_distance" in h:
+            if h["vector_distance"] <= config.MAX_DISTANCE:
+                filtered.append(h)
+        else:
+            filtered.append(h)
+    return filtered
 
 
 if __name__ == "__main__":

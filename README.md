@@ -263,3 +263,26 @@ How a chunk is stored
             - IP: inner product / dot product
             - L2: Euclidean distabce 
         - DIM 384: must match bge-small output, otherwise index cration or insert fail
+
+# Changes
+
+## Before: Pure Vector Search
+
+1. Embed the question with bge-small
+2. Find the 5 closest chunks by cosine distance (vector similarity only)
+3. Filter out anything with distance > 0.6
+4. Send surviving chunks to the LLM
+
+Weakness: If the user's wording differs from the chunk's wording, the vector may miss it. e.g. asking "RDBMS analogy" might not vector-match a chunk that uses words like "row" and "column" without ever saying "RDBMS".
+
+## After: Hybrid Search (BM25 + Vector)
+
+1. Run two searches in parallel:
+- BM25 text search — classic keyword search on the content field. Finds exact word matches like "RDBMS", "row", "index". Returns top 15 chunks ranked by text relevance score.
+- Vector KNN search — same as before, returns top 15 chunks by cosine similarity.
+2. Normalize both score sets to 0–1 range (so text scores and vector scores are comparable).
+3. Combine with weighted linear blend:
+final_score = 0.7 × vector_score + 0.3 × text_score
+(HYBRID_ALPHA = 0.7 — mostly vector, with a text boost)
+4. Sort by combined score, take top 5, send to LLM.
+Why it's better: A chunk that ranks #8 on vector alone might rank #1 on BM25 keywords. The blend surfaces it. Pure vector search would have missed it entirely since it only looked at the top 5.

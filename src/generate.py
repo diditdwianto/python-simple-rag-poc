@@ -46,4 +46,4 @@ def generate(user_prompt: str) -> str:
         ],
         temperature=config.TEMPERATURE,
     )
-    return resp.choices[0].message.content
+    return resp.choices[0].message.content or ""

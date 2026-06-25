@@ -3,32 +3,17 @@
 Run:  python -m src.app
 """
 
-import json
 import traceback
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
 from src import config
-from src.embeddings import embed_query
-from src.store import create_index, fetch_all, search
 from src.generate import generate, SYSTEM_PROMPT
+from src.query import NO_INFO, build_user_prompt, retrieve
+from src.store import fetch_all
 
 load_dotenv()
-
-NO_INFO = "I don't have enough information to answer that."
-
-
-def _threshold_filter(hits: list[dict]) -> list[dict]:
-    """Filter hits by relevance threshold. Handles both vector and hybrid scores."""
-    filtered = []
-    for h in hits:
-        if "vector_distance" in h:
-            if h["vector_distance"] <= config.MAX_DISTANCE:
-                filtered.append(h)
-        else:
-            filtered.append(h)
-    return filtered
 
 app = Flask(__name__)
 
@@ -48,17 +33,11 @@ def query():
         return jsonify({"error": "Question is required."}), 400
 
     try:
-        qvec = embed_query(question)
-        hits = search(qvec, k=config.TOP_K, source=source, query_text=question)
-        hits = _threshold_filter(hits)
-
+        hits = retrieve(question, source=source)
         if not hits:
             return jsonify({"answer": NO_INFO, "sources": [], "context": []})
 
-        context = "\n\n".join(
-            f"[source: {h['source']}]\n{h['content']}" for h in hits
-        )
-        user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
+        user_prompt = build_user_prompt(question, hits)
         answer = generate(user_prompt)
 
         sources = list(dict.fromkeys(h["source"] for h in hits))
@@ -67,7 +46,9 @@ def query():
                 "source": h["source"],
                 "chunk_index": h["chunk_index"],
                 "content": h["content"],
-                "distance": round(h.get("vector_distance", h.get("combined_score", 0)), 4),
+                "distance": round(
+                    h["combined_score"] if "combined_score" in h else h["vector_distance"], 4
+                ),
                 "search_mode": "hybrid" if "combined_score" in h else "vector",
             }
             for h in hits
@@ -98,10 +79,7 @@ def api_data():
         chunks = fetch_all()
         grouped = {}
         for c in chunks:
-            s = c["source"]
-            if s not in grouped:
-                grouped[s] = []
-            grouped[s].append(c)
+            grouped.setdefault(c["source"], []).append(c)
         return jsonify({"chunks_by_source": grouped, "total_chunks": len(chunks)})
     except Exception as exc:
         traceback.print_exc()
@@ -121,10 +99,9 @@ def ingest():
 
 @app.route("/api/status", methods=["GET"])
 def status():
-    from src.store import get_index as _get_index
+    from src.store import get_index
     try:
-        idx = _get_index()
-        info = idx.info()
+        info = get_index().info()
         return jsonify({
             "index_name": config.INDEX_NAME,
             "num_chunks": info.get("num_docs", 0),

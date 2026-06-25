@@ -8,6 +8,9 @@ Note: redisvl returns `vector_distance` (cosine distance, lower = closer). Do NO
 treat it as a similarity score.
 """
 
+import re
+from functools import lru_cache
+
 from redisvl.index import SearchIndex
 from redisvl.query import FilterQuery, VectorQuery
 from redisvl.query.filter import Tag
@@ -38,10 +41,34 @@ SCHEMA = {
     ],
 }
 
+# Redis full-text special characters. Stripped from free-form queries and
+# backslash-escaped inside tag filters, so a raw question (or a filename with
+# punctuation like "alien-snacks.md") can never produce an invalid FT.SEARCH.
+_FT_SPECIAL = re.compile(r"""[,.<>{}\[\]"':;!@#$%^&*()\-+=~|/\\]""")
 
+
+def _sanitize_query(text: str) -> str:
+    """Turn a free-form question into a safe full-text query (special chars -> space)."""
+    return " ".join(_FT_SPECIAL.sub(" ", text).split())
+
+
+def _escape_tag(value: str) -> str:
+    """Backslash-escape a tag value (e.g. a filename) for an FT tag filter."""
+    return _FT_SPECIAL.sub(lambda m: "\\" + m.group(0), value)
+
+
+@lru_cache(maxsize=1)
 def get_index() -> SearchIndex:
-    """Return a redisvl SearchIndex connected to REDIS_URL."""
+    """Return a redisvl SearchIndex connected to REDIS_URL (cached)."""
     return SearchIndex.from_dict(SCHEMA, redis_url=config.REDIS_URL)
+
+
+@lru_cache(maxsize=1)
+def _raw_client():
+    """Cached low-level redis-py client for the hand-written BM25 FT.SEARCH query."""
+    from redis import Redis
+
+    return Redis.from_url(config.REDIS_URL, decode_responses=False)
 
 
 def create_index(overwrite: bool = True) -> None:
@@ -73,15 +100,12 @@ def add_chunks(records: list[dict]) -> None:
 
 def fetch_all() -> list[dict]:
     """Return all chunks from the index, sorted by source then chunk_index."""
-    from redisvl.query import FilterQuery
-
-    idx = get_index()
     query = FilterQuery(
         filter_expression="*",
         return_fields=["content", "source", "chunk_index"],
         num_results=10000,
     )
-    results = idx.query(query)
+    results = get_index().query(query)
     chunks = [
         {
             "content": r.get("content"),
@@ -92,6 +116,52 @@ def fetch_all() -> list[dict]:
     ]
     chunks.sort(key=lambda c: (c["source"], c["chunk_index"]))
     return chunks
+
+
+def apply_threshold(hits: list[dict]) -> list[dict]:
+    """Relevance gate shared by every query path (the 'no info' short-circuit).
+
+    Each hit carries `vector_distance` (cosine distance) when it had a vector
+    match; hybrid hits found by text only carry None. If no hit is within
+    MAX_DISTANCE the whole result is treated as off-topic and dropped (so the
+    caller answers "I don't have enough information"). Otherwise vector hits
+    beyond the floor are dropped, while text-only matches ride along with the
+    relevant pool.
+    """
+    distances = [h["vector_distance"] for h in hits if h.get("vector_distance") is not None]
+    if not distances or min(distances) > config.MAX_DISTANCE:
+        return []
+    return [
+        h
+        for h in hits
+        if h.get("vector_distance") is None or h["vector_distance"] <= config.MAX_DISTANCE
+    ]
+
+
+def search(
+    query_vector: list[float],
+    k: int = config.TOP_K,
+    source: str | None = None,
+    query_text: str | None = None,
+) -> list[dict]:
+    """Search chunks. Dispatches to vector or hybrid based on config.SEARCH_MODE.
+
+    If query_text is provided and SEARCH_MODE is "hybrid", uses BM25+vector.
+    Otherwise falls back to pure vector KNN search.
+    """
+    if config.SEARCH_MODE == "hybrid" and query_text:
+        return hybrid_search(query_text, query_vector, k=k, source=source)
+    return vector_search(query_vector, k=k, source=source)
+
+
+def _normalize(scores: dict) -> dict:
+    """Scale a {id: score} map to 0..1. Equal scores all map to 1.0 (equally relevant)."""
+    if not scores:
+        return {}
+    lo, hi = min(scores.values()), max(scores.values())
+    if hi == lo:
+        return {key: 1.0 for key in scores}
+    return {key: (v - lo) / (hi - lo) for key, v in scores.items()}
 
 
 def hybrid_search(
@@ -107,7 +177,8 @@ def hybrid_search(
     then merges with weighted combination: final = alpha * vec_score + (1-alpha) * text_score.
 
     Alpha controls the blend: 0.0 = text only, 1.0 = vector only, 0.7 = mostly vector
-    with a text boost.
+    with a text boost. Each result keeps the raw `vector_distance` of its vector
+    match (None if found by text only) so apply_threshold() can still gate on it.
     """
     fetch_k = k * 3
 
@@ -116,20 +187,16 @@ def hybrid_search(
 
     text_scores = {h["id"]: h["text_score"] for h in text_hits}
     vec_scores = {h["id"]: h["vec_score"] for h in vec_hits}
-    all_ids = set(text_scores.keys()) | set(vec_scores.keys())
+    vec_dist = {h["id"]: h["vector_distance"] for h in vec_hits}
+    all_ids = set(text_scores) | set(vec_scores)
 
     content_map = {}
-    for h in text_hits:
-        content_map[h["id"]] = {"content": h["content"], "source": h["source"], "chunk_index": h["chunk_index"]}
-    for h in vec_hits:
-        content_map[h["id"]] = {"content": h["content"], "source": h["source"], "chunk_index": h["chunk_index"]}
-
-    def _normalize(scores: dict) -> dict:
-        if not scores:
-            return {}
-        min_s, max_s = min(scores.values()), max(scores.values())
-        rng = max_s - min_s if max_s != min_s else 1.0
-        return {k: (v - min_s) / rng for k, v in scores.items()}
+    for h in (*text_hits, *vec_hits):
+        content_map[h["id"]] = {
+            "content": h["content"],
+            "source": h["source"],
+            "chunk_index": h["chunk_index"],
+        }
 
     norm_text = _normalize(text_scores)
     norm_vec = _normalize(vec_scores)
@@ -145,6 +212,8 @@ def hybrid_search(
             "source": meta["source"],
             "chunk_index": meta["chunk_index"],
             "combined_score": round(score, 6),
+            "vector_distance": vec_dist.get(doc_id),  # None if text-only match
+            "id": doc_id,
         })
 
     combined.sort(key=lambda x: x["combined_score"], reverse=True)
@@ -153,19 +222,26 @@ def hybrid_search(
 
 def _text_search(query_text: str, source: str | None = None, k: int = 20) -> list[dict]:
     """BM25 full-text search on the content field."""
-    from redis import Redis
     from redis.commands.search.query import Query as FTQuery
 
-    client = Redis.from_url(config.REDIS_URL, decode_responses=False)
+    cleaned = _sanitize_query(query_text)
+    if not cleaned:
+        return []  # nothing searchable left (e.g. query was all punctuation)
 
-    escaped = query_text.replace("&", " ").replace("|", " ").replace("-", " ")
     if source:
-        q_str = f"(@source:{{{source}}}) (@content:({escaped}))"
+        q_str = f"(@source:{{{_escape_tag(source)}}}) (@content:({cleaned}))"
     else:
-        q_str = f"@content:({escaped})"
+        q_str = f"@content:({cleaned})"
 
-    ft_query = FTQuery(q_str).return_fields("content", "source", "chunk_index").with_scores().paging(0, k).dialect(2)
-    results = client.ft(config.INDEX_NAME.encode()).search(ft_query)
+    ft_query = (
+        FTQuery(q_str)
+        .scorer("BM25")
+        .return_fields("content", "source", "chunk_index")
+        .with_scores()
+        .paging(0, k)
+        .dialect(2)
+    )
+    results = _raw_client().ft(config.INDEX_NAME).search(ft_query)
 
     def _decode(v):
         if isinstance(v, bytes):
@@ -188,22 +264,6 @@ def _text_search(query_text: str, source: str | None = None, k: int = 20) -> lis
             "text_score": text_score,
         })
     return hits
-
-
-def search(
-    query_vector: list[float],
-    k: int = config.TOP_K,
-    source: str | None = None,
-    query_text: str | None = None,
-) -> list[dict]:
-    """Search chunks. Dispatches to vector or hybrid based on config.SEARCH_MODE.
-
-    If query_text is provided and SEARCH_MODE is "hybrid", uses BM25+vector.
-    Otherwise falls back to pure vector KNN search.
-    """
-    if config.SEARCH_MODE == "hybrid" and query_text:
-        return hybrid_search(query_text, query_vector, k=k, source=source)
-    return vector_search(query_vector, k=k, source=source)
 
 
 def vector_search(

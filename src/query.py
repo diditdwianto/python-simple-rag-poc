@@ -10,41 +10,34 @@ from dotenv import load_dotenv
 from src import config
 from src.embeddings import embed_query
 from src.generate import generate
-from src.store import search
+from src.store import apply_threshold, search
 
 NO_INFO = "I don't have enough information to answer that."
 
 
-def answer(question: str, source: str | None = None) -> str:
-    """Full RAG query: embed question, retrieve, threshold, build prompt, generate.
+def retrieve(question: str, source: str | None = None) -> list[dict]:
+    """Embed the question, search (hybrid or vector), and apply the relevance gate.
 
     If `source` is given, retrieval is restricted to chunks from that file.
-    Uses hybrid search (BM25 + vector) when config.SEARCH_MODE is "hybrid".
+    Returns the surviving hits (empty list means off-topic / no info).
     """
     qvec = embed_query(question)
     hits = search(qvec, k=config.TOP_K, source=source, query_text=question)
+    return apply_threshold(hits)
 
-    hits = _threshold_filter(hits)
+
+def build_user_prompt(question: str, hits: list[dict]) -> str:
+    """Assemble the grounded user turn: labelled context chunks + the question."""
+    context = "\n\n".join(f"[source: {h['source']}]\n{h['content']}" for h in hits)
+    return f"Context:\n{context}\n\nQuestion: {question}"
+
+
+def answer(question: str, source: str | None = None) -> str:
+    """Full RAG query: retrieve, short-circuit if nothing relevant, else generate."""
+    hits = retrieve(question, source=source)
     if not hits:
         return NO_INFO
-
-    context = "\n\n".join(
-        f"[source: {h['source']}]\n{h['content']}" for h in hits
-    )
-    user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
-    return generate(user_prompt)
-
-
-def _threshold_filter(hits: list[dict]) -> list[dict]:
-    """Filter hits by relevance threshold. Handles both vector and hybrid scores."""
-    filtered = []
-    for h in hits:
-        if "vector_distance" in h:
-            if h["vector_distance"] <= config.MAX_DISTANCE:
-                filtered.append(h)
-        else:
-            filtered.append(h)
-    return filtered
+    return generate(build_user_prompt(question, hits))
 
 
 if __name__ == "__main__":

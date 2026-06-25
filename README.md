@@ -89,6 +89,22 @@ the source filter input below the question box. It combines vector similarity
 with a `source` tag filter, so only chunks from that file are considered.
 Run `python -m src.query --help` to see all CLI options.
 
+### 5. Browse the indexed data (web UI)
+
+Open **http://localhost:5555/data** to see every chunk currently in the index,
+grouped by source file (with chunk indexes and full text). Useful for confirming
+what was ingested and how documents were split.
+
+## Managing the corpus
+
+- **Add documents:** drop `.txt` / `.md` files into `data/` and re-run
+  `python -m src.ingest` (or click re-ingest in the web UI). Ingestion rebuilds
+  the index from scratch each run, so there are no stale chunks or duplicates.
+- **Exclude a file without deleting it:** prefix its filename with `exclude-`
+  (configurable via `EXCLUDE_PREFIX` in `config.py`). Ingestion skips any file
+  whose name starts with that prefix and prints a `[SKIP]` line — handy for
+  parking documents you don't want retrieved yet.
+
 
 ## Source files (`src/`)
 
@@ -100,12 +116,12 @@ Each module has a single responsibility. The two **entry points** you need to ru
 | `config.py` | Central configuration. All tunables live here - embedding model & dimension, the bge query prefix, chunk size/overlap, Redis URL & index name, the retrieval `TOP_K` and distance threshold, and the Groq model. Every other module imports its settings from this file, so you change behavior in one place. |
 | `chunking.py` | Splits a document's text into overlapping chunks with a recursive character splitter (breaks on paragraphs → sentences → words). Chunks are sized to stay under the embedder's token limit. Exposes `chunk_text(text) -> list[str]`. |
 | `embeddings.py` | Turns text into 384-dim vectors using the local `bge-small` model. Handles bge's query/document asymmetry: `embed_documents()` embeds chunks with **no prefix**; `embed_query()` prepends the query prefix. Both return normalized vectors. Same model for indexing and querying. |
-| `store.py` | The Redis vector store (via `redisvl`). Defines the index schema and provides `create_index()` (build/reset the index), `add_chunks()` (store vectors + text + metadata, converting floats to bytes), and `search()` (KNN, returns hits with `vector_distance`). This is the retrieval layer. |
+| `store.py` | The Redis store (via `redisvl`). Defines the index schema and provides `create_index()` (build/reset the index), `add_chunks()` (store vectors + text + metadata, converting floats to bytes), `fetch_all()` (list every chunk, for the data browser), and `search()`. `search()` dispatches on `SEARCH_MODE`: pure `vector_search()` (KNN, returns `vector_distance`) or `hybrid_search()` (BM25 text + vector blended in Python). This is the retrieval layer. |
 | `generate.py` | The LLM backend (generation step). Builds the grounded system prompt and sends context + question to Groq (`llama-3.1-8b-instant`) via `generate(user_prompt)  str`. Written as a **pluggable** backend - swapping to a local model later means changing only this file. |
 | `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/`, chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
-| `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks, applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
+| `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks (hybrid BM25+vector when `SEARCH_MODE="hybrid"`), applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
 | `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Embeds the question, runs the KNN search, and prints each raw hit (distance, source, chunk_index, full chunk text) marked `KEEP`/`drop` against the distance threshold. Needs no Groq key. Useful for inspecting retrieval and tuning `TOP_K` / `MAX_DISTANCE`. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
-| `app.py` | **Entry point** for the web UI. Flask app serving a dark-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Provides `/api/query` (POST — RAG query), `/api/ingest` (POST — re-ingest docs), and `/api/status` (GET — index health). Run with `python -m src.app`. |
+| `app.py` | **Entry point** for the web UI. Flask app serving a dark-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Routes: `/` (chat page), `/data` (browse every ingested chunk grouped by source). APIs: `/api/query` (POST — RAG query, also returns the exact system+user prompt sent to the LLM), `/api/data` (GET — all chunks by source), `/api/ingest` (POST — re-ingest docs), `/api/status` (GET — index health). Run with `python -m src.app`. |
 | `__init__.py` | Empty file that marks `src/` as a Python package (so `python -m src.ingest` works). |
 
 **Flow:** `ingest.py` uses `chunking` + `embeddings` + `store`; `query.py` uses
@@ -113,18 +129,18 @@ Each module has a single responsibility. The two **entry points** you need to ru
 
 ## Tech Stack
 - **Web UI:** Flask (dark-themed chat interface at `localhost:5555`)
-- Vector Store: Redis Stack (redisvl + redis-py) via Docker
-- Embeddings: Local sentence-transformer
-    - BAAI/bge-small-en-v1.5 - 328 dimentions, strong retrieval quality, ~130 MB
-    - all-MiniLM-L6-v2: 384 dimention, classic lightweight baseline, very fast
+- Vector Store: Redis Stack (redisvl + redis-py) via Docker; FLAT index, COSINE distance
+- Retrieval: hybrid by default — BM25 full-text + vector KNN, blended (`SEARCH_MODE`, `HYBRID_ALPHA` in `config.py`)
+- Embeddings: Local sentence-transformer (currently `BAAI/bge-small-en-v1.5`, **384 dimensions**, strong retrieval quality, ~130 MB)
+    - Alternative: `all-MiniLM-L6-v2` — also 384 dimensions, classic lightweight baseline, very fast
 - LLM (generation): `llama-3.1-8b-instant` via Groq (free tier) - pluggable backend
 - Orchestration: Plain python first; then add LangChain/Llamaindex only if we want abstraction
 
 ## The minimal flow in one picture
 
-  INDEX:  docs ─► chunk ─► embed ─► Redis (HNSW index: vector + text + metadata)
+  INDEX:  docs ─► chunk ─► embed ─► Redis (FLAT index: vector + text + metadata)
 
-  QUERY:  question ─► embed ─► Redis KNN (top-k) ─► prompt(context + question)
+  QUERY:  question ─► embed ─► Redis hybrid (BM25 + vector KNN, top-k) ─► prompt(context + question)
                                                          │
                                                          ▼
                                                   LLM (generation) ─► grounded answer
@@ -237,7 +253,7 @@ Notes
 
 How a chunk is stored
 - Each chunk become one Redis key holding several fields (because Redis isn't natively a 'vector DB')
-    - embedding   = <383 float32 bytes>
+    - embedding   = <384 float32 values, stored as bytes>
     - content     = "The revenue grew 20% in Q4 ..."
     - source      = "annual_report_2025.pdf"
     - chunk_index = 42

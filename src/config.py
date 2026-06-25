@@ -16,8 +16,10 @@ INDEX_PREFIX = "chunk"
 
 # Retrieval
 TOP_K = 5
-MAX_DISTANCE = 0.6    # cosine DISTANCE pre-filter; <= keep, > discard. Coarse gate only —
-                       # the grounded prompt is the real guard against off-topic answers.
+MAX_DISTANCE = 0.40   # cosine DISTANCE floor; <= keep, > discard. Tuned empirically on
+                       # this corpus: on-topic queries land <=0.31, off-topic >=0.46, so
+                       # 0.40 cleanly separates them (raise if legit answers get dropped,
+                       # lower if junk gets through). The grounded prompt is the backstop.
 SEARCH_MODE = "hybrid"  # "vector" (pure vector KNN) or "hybrid" (BM25 + vector combined)
 HYBRID_ALPHA = 0.7      # weight of vector score in hybrid search (0.0 = text only, 1.0 = vector only)
 

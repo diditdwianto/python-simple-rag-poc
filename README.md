@@ -286,7 +286,7 @@ How a chunk is stored
 
 1. Embed the question with bge-small
 2. Find the 5 closest chunks by cosine distance (vector similarity only)
-3. Filter out anything with distance > 0.6
+3. Filter out anything with distance > `MAX_DISTANCE` (0.40 — tuned so off-topic queries short-circuit to "I don't have enough information")
 4. Send surviving chunks to the LLM
 
 Weakness: If the user's wording differs from the chunk's wording, the vector may miss it. e.g. asking "RDBMS analogy" might not vector-match a chunk that uses words like "row" and "column" without ever saying "RDBMS".

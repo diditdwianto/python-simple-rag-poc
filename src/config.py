@@ -28,7 +28,7 @@ GEN_MODEL = "llama-3.1-8b-instant"   # Groq
 TEMPERATURE = 0.0
 
 # Web UI
-WEB_HOST = "0.0.0.0"
+WEB_HOST = "127.0.0.1"   # localhost only; avoids exposing the Flask debug server to the LAN
 WEB_PORT = 5555
 
 # Ingestion

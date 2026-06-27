@@ -71,6 +71,13 @@ def _raw_client():
     return Redis.from_url(config.REDIS_URL, decode_responses=False)
 
 
+def ping() -> None:
+    """Touch the index connection (first call establishes it). Used to time the
+    'loading index' phase of a query."""
+    get_index()
+    _raw_client().ping()
+
+
 def create_index(overwrite: bool = True) -> None:
     """Create the index from SCHEMA.
 

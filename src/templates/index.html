@@ -312,22 +312,15 @@
       font-size: 0.95rem;
     }
 
-    /* Activity panel: live per-phase breakdown of a query */
+    /* Pipeline activity: per-phase timing breakdown, shown in a collapsible
+       block at the bottom of an answer */
     .activity {
-      background: var(--surface);
+      background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px 18px;
-      font-size: 0.85rem;
-      animation: fadeIn 0.3s ease;
-    }
-    .activity .activity-title {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--text-muted);
-      font-weight: 600;
-      margin-bottom: 10px;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-top: 8px;
+      font-size: 0.82rem;
     }
     .activity-step {
       display: flex;
@@ -341,9 +334,7 @@
       text-align: center;
       color: var(--success);
     }
-    .activity-step.running .icon { color: #facc15; }
     .activity-step .step-label { color: var(--text); flex: 1; }
-    .activity-step.running .step-label { color: var(--text-muted); }
     .activity-step .step-time {
       color: var(--text-muted);
       font-variant-numeric: tabular-nums;
@@ -364,15 +355,6 @@
       color: var(--text);
       font-weight: 500;
       font-variant-numeric: tabular-nums;
-    }
-    .activity .spinner-sm {
-      display: inline-block;
-      width: 12px; height: 12px;
-      border: 2px solid var(--border);
-      border-top-color: #facc15;
-      border-radius: 50%;
-      animation: spin 0.6s linear infinite;
-      vertical-align: middle;
     }
   </style>
 </head>
@@ -451,92 +433,62 @@
       return (toks / secs).toFixed(1) + ' tok/s';
     }
 
-    // Build the live "Activity" panel and return an API to fill it in as events arrive.
-    function createActivity() {
+    function showTyping() {
       hideEmpty();
-      const panel = document.createElement('div');
-      panel.className = 'activity';
-      panel.innerHTML = '<div class="activity-title">Activity</div><div class="activity-steps"></div>';
-      const stepsEl = panel.querySelector('.activity-steps');
-      chatArea.appendChild(panel);
-      panel.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      const div = document.createElement('div');
+      div.className = 'typing-indicator';
+      div.id = 'typing';
+      div.innerHTML = '<span class="spinner"></span> Thinking&hellip;';
+      chatArea.appendChild(div);
+      div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
 
-      const rows = {};
-      function row(id) {
-        if (!rows[id]) {
-          const el = document.createElement('div');
-          el.className = 'activity-step';
-          stepsEl.appendChild(el);
-          rows[id] = el;
+    function removeTyping() {
+      const el = document.getElementById('typing');
+      if (el) el.remove();
+    }
+
+    // Render the pipeline timing breakdown as a collapsible block, shown at the
+    // bottom of an answer (after "Show retrieved context" / "Show LLM prompt").
+    function renderActivity(act) {
+      if (!act || !act.steps || !act.steps.length) return '';
+      let rows = '';
+      for (const s of act.steps) {
+        let time = fmtTime(s.ms);
+        const l = s.llm;
+        if (l && l.completion_tokens) {
+          time += ' &middot; ' + l.completion_tokens + ' tok';
+          if (l.completion_time) time += ' @ ' + fmtRate(l.completion_tokens, l.completion_time);
+        } else if (s.detail) {
+          time += ' &middot; <span class="detail">' + escapeHtml(s.detail) + '</span>';
         }
-        return rows[id];
+        rows += '<div class="activity-step"><span class="icon">&#10003;</span>'
+          + '<span class="step-label">' + escapeHtml(s.label) + '</span>'
+          + '<span class="step-time">' + time + '</span></div>';
+        if (l) {
+          const bits = [];
+          if (l.first_token != null) bits.push('first token ' + fmtTime(l.first_token * 1000));
+          if (l.queue_time) bits.push('queued ' + fmtTime(l.queue_time * 1000));
+          if (l.prompt_tokens) {
+            let p = 'prompt ' + l.prompt_tokens + ' tok';
+            if (l.prompt_time) p += ' in ' + fmtTime(l.prompt_time * 1000);
+            bits.push(p);
+          }
+          if (l.completion_tokens) {
+            let g = 'generated ' + l.completion_tokens + ' tok';
+            if (l.completion_time) g += ' in ' + fmtTime(l.completion_time * 1000) + ' (' + fmtRate(l.completion_tokens, l.completion_time) + ')';
+            bits.push(g);
+          }
+          if (bits.length) {
+            rows += '<div class="activity-substep"><span class="bolt">&#9889;</span> ' + bits.join(' &middot; ') + '</div>';
+          }
+        }
       }
-
-      return {
-        // a step currently in progress: spinner, no timing yet
-        running(id, label) {
-          const el = row(id);
-          el.className = 'activity-step running';
-          el.innerHTML = '<span class="icon"><span class="spinner-sm"></span></span>'
-            + '<span class="step-label">' + escapeHtml(label) + '</span>'
-            + '<span class="step-time"></span>';
-        },
-        // a finished step: checkmark, timing, optional detail / LLM stats
-        done(d) {
-          const el = row(d.id);
-          el.className = 'activity-step';
-          let time = fmtTime(d.ms);
-          const s = d.llm;
-          if (s && s.completion_tokens) {
-            time += ' &middot; ' + s.completion_tokens + ' tok';
-            if (s.completion_time) time += ' @ ' + fmtRate(s.completion_tokens, s.completion_time);
-          } else if (d.detail) {
-            time += ' &middot; <span class="detail">' + escapeHtml(d.detail) + '</span>';
-          }
-          el.innerHTML = '<span class="icon">&#10003;</span>'
-            + '<span class="step-label">' + escapeHtml(d.label) + '</span>'
-            + '<span class="step-time">' + time + '</span>';
-
-          if (s) {
-            const bits = [];
-            if (s.first_token != null) bits.push('first token ' + fmtTime(s.first_token * 1000));
-            if (s.queue_time) bits.push('queued ' + fmtTime(s.queue_time * 1000));
-            if (s.prompt_tokens) {
-              let p = 'prompt ' + s.prompt_tokens + ' tok';
-              if (s.prompt_time) p += ' in ' + fmtTime(s.prompt_time * 1000);
-              bits.push(p);
-            }
-            if (s.completion_tokens) {
-              let g = 'generated ' + s.completion_tokens + ' tok';
-              if (s.completion_time) g += ' in ' + fmtTime(s.completion_time * 1000) + ' (' + fmtRate(s.completion_tokens, s.completion_time) + ')';
-              bits.push(g);
-            }
-            if (bits.length) {
-              const sub = document.createElement('div');
-              sub.className = 'activity-substep';
-              sub.innerHTML = '<span class="bolt">&#9889;</span> ' + bits.join(' &middot; ');
-              el.after(sub);
-            }
-          }
-          panel.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        },
-        total(ms) {
-          const t = document.createElement('div');
-          t.className = 'activity-total';
-          t.textContent = 'Total: ' + fmtTime(ms);
-          panel.appendChild(t);
-        },
-        fail() {
-          Object.values(rows).forEach(el => {
-            if (el.classList.contains('running')) {
-              el.classList.remove('running');
-              const icon = el.querySelector('.icon');
-              icon.innerHTML = '&#10007;';
-              icon.style.color = 'var(--error)';
-            }
-          });
-        },
-      };
+      let html = '<details class="context-toggle"><summary>Show pipeline activity</summary>';
+      html += '<div class="activity"><div class="activity-steps">' + rows + '</div>';
+      if (act.total_ms != null) html += '<div class="activity-total">Total: ' + fmtTime(act.total_ms) + '</div>';
+      html += '</div></details>';
+      return html;
     }
 
     async function askQuestion() {
@@ -545,99 +497,46 @@
 
       questionInput.value = '';
       addMessage('question', '<div class="label">You</div>' + escapeHtml(question));
+
       btnAsk.disabled = true;
-
-      const activity = createActivity();
-      let answerDiv = null;
-      let answerText = '';
-      let finalData = null;
-
-      function ensureAnswerDiv() {
-        if (!answerDiv) {
-          answerDiv = addMessage('answer', '<div class="label">Answer</div><div class="answer-body"></div>');
-        }
-        return answerDiv;
-      }
-
-      function renderFinal() {
-        if (!finalData) return;
-        const div = ensureAnswerDiv();
-        let html = '<div class="label">Answer</div><div class="answer-body">' + marked.parse(finalData.answer || answerText) + '</div>';
-        if (finalData.sources && finalData.sources.length) {
-          html += '<div class="sources">Sources: ' + finalData.sources.map(s => '<span class="tag">' + escapeHtml(s) + '</span>').join('') + '</div>';
-        }
-        if (finalData.context && finalData.context.length) {
-          html += '<details class="context-toggle"><summary>Show retrieved context (' + finalData.context.length + ' chunks)</summary><div class="context-chunks">';
-          for (const c of finalData.context) {
-            html += '<div class="context-chunk"><div class="chunk-meta">' + escapeHtml(c.source) + ' &middot; chunk #' + c.chunk_index + ' &middot; ' + (c.search_mode === 'hybrid' ? 'score: ' + c.distance : 'distance: ' + c.distance) + '</div>' + escapeHtml(c.content) + '</div>';
-          }
-          html += '</div></details>';
-        }
-        if (finalData.prompt) {
-          html += '<details class="context-toggle"><summary>Show LLM prompt</summary><div class="context-chunks">';
-          html += '<div class="context-chunk"><div class="chunk-meta">System prompt</div>' + escapeHtml(finalData.prompt.system) + '</div>';
-          html += '<div class="context-chunk"><div class="chunk-meta">User prompt</div>' + escapeHtml(finalData.prompt.user) + '</div>';
-          html += '</div></details>';
-        }
-        div.innerHTML = html;
-        div.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      }
-
-      function onEvent(event, p) {
-        if (event === 'step') {
-          activity.done(p);
-        } else if (event === 'llm_start') {
-          activity.running(p.id, p.label);
-        } else if (event === 'token') {
-          answerText += p.text;
-          ensureAnswerDiv().querySelector('.answer-body').innerHTML = marked.parse(answerText);
-          answerDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        } else if (event === 'answer') {
-          finalData = p;
-        } else if (event === 'done') {
-          activity.total(p.total_ms);
-          renderFinal();
-        } else if (event === 'error') {
-          activity.fail();
-          addMessage('error', '<div class="label">Error</div>' + escapeHtml(p.error));
-        }
-      }
-
-      function handleFrame(frame) {
-        let event = 'message', data = '';
-        for (const line of frame.split('\n')) {
-          if (line.startsWith('event:')) event = line.slice(6).trim();
-          else if (line.startsWith('data:')) data += line.slice(5).trim();
-        }
-        if (data) onEvent(event, JSON.parse(data));
-      }
+      showTyping();
 
       try {
-        const resp = await fetch('/api/query_stream', {
+        const resp = await fetch('/api/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ question, source: sourceInput.value.trim() || null }),
         });
-        if (!resp.ok || !resp.body) {
-          const data = await resp.json().catch(() => ({ error: 'Request failed (' + resp.status + ')' }));
-          throw new Error(data.error || 'Request failed');
-        }
+        const data = await resp.json();
+        removeTyping();
 
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let idx;
-          while ((idx = buffer.indexOf('\n\n')) !== -1) {
-            handleFrame(buffer.slice(0, idx));
-            buffer = buffer.slice(idx + 2);
+        if (data.error) {
+          addMessage('error', '<div class="label">Error</div>' + escapeHtml(data.error));
+        } else {
+          let html = '<div class="label">Answer</div><div class="answer-body">' + marked.parse(data.answer) + '</div>';
+          if (data.sources && data.sources.length) {
+            html += '<div class="sources">Sources: ' + data.sources.map(s => '<span class="tag">' + escapeHtml(s) + '</span>').join('') + '</div>';
           }
+          if (data.context && data.context.length) {
+            html += '<details class="context-toggle"><summary>Show retrieved context (' + data.context.length + ' chunks)</summary>';
+            html += '<div class="context-chunks">';
+            for (const c of data.context) {
+              html += '<div class="context-chunk"><div class="chunk-meta">' + escapeHtml(c.source) + ' &middot; chunk #' + c.chunk_index + ' &middot; ' + (c.search_mode === 'hybrid' ? 'score: ' + c.distance : 'distance: ' + c.distance) + '</div>' + escapeHtml(c.content) + '</div>';
+            }
+            html += '</div></details>';
+          }
+          if (data.prompt) {
+            html += '<details class="context-toggle"><summary>Show LLM prompt</summary>';
+            html += '<div class="context-chunks">';
+            html += '<div class="context-chunk"><div class="chunk-meta">System prompt</div>' + escapeHtml(data.prompt.system) + '</div>';
+            html += '<div class="context-chunk"><div class="chunk-meta">User prompt</div>' + escapeHtml(data.prompt.user) + '</div>';
+            html += '</div></details>';
+          }
+          html += renderActivity(data.activity);
+          addMessage('answer', html);
         }
       } catch (err) {
-        activity.fail();
+        removeTyping();
         addMessage('error', '<div class="label">Error</div>' + escapeHtml(err.message));
       }
 

@@ -364,6 +364,8 @@
     <div class="header-actions">
       <a class="btn" href="/data">All Data</a>
       <button class="btn" id="btn-status" onclick="checkStatus()">Check Status</button>
+      <input type="file" id="file-input" accept=".md,.txt" hidden />
+      <button class="btn" id="btn-upload" onclick="document.getElementById('file-input').click()">Upload Doc</button>
       <button class="btn" id="btn-ingest" onclick="runIngest()">Re-ingest Docs</button>
     </div>
   </header>
@@ -400,6 +402,14 @@
     const sourceInput = document.getElementById('source-input');
     const btnAsk = document.getElementById('btn-ask');
     const btnIngest = document.getElementById('btn-ingest');
+    const btnUpload = document.getElementById('btn-upload');
+    const fileInput = document.getElementById('file-input');
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (file) uploadDoc(file);
+      fileInput.value = '';  // allow re-selecting the same file
+    });
 
     questionInput.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -585,6 +595,67 @@
       }
       btnIngest.disabled = false;
       btnIngest.textContent = 'Re-ingest Docs';
+      checkStatus();
+    }
+
+    // Upload a .md/.txt file to data/. After it's saved, offer to ingest it.
+    async function uploadDoc(file) {
+      btnUpload.disabled = true;
+      btnUpload.textContent = 'Uploading…';
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+        const data = await resp.json();
+        if (data.error) {
+          addMessage('error', '<div class="label">Upload Error</div>' + escapeHtml(data.error));
+        } else {
+          const name = data.filename;
+          const note = data.replaced ? ' (replaced an existing file of the same name)' : '';
+          const html = '<div class="label">Upload</div>'
+            + 'Saved <strong>' + escapeHtml(name) + '</strong> to <code>data/</code>' + note + '. '
+            + 'It will be ingested on the next full re-ingest, or ingest just this file now:'
+            + '<div style="margin-top:12px;">'
+            + '<button class="btn btn-primary" onclick="ingestFile(this, \'' + encodeURIComponent(name) + '\')">Ingest this file</button>'
+            + '</div>';
+          addMessage('answer', html);
+        }
+      } catch (err) {
+        addMessage('error', '<div class="label">Error</div>' + escapeHtml(err.message));
+      }
+      btnUpload.disabled = false;
+      btnUpload.textContent = 'Upload Doc';
+    }
+
+    // Incrementally ingest a single already-uploaded file (does not touch others).
+    async function ingestFile(btn, encodedName) {
+      const filename = decodeURIComponent(encodedName);
+      btn.disabled = true;
+      btn.textContent = 'Ingesting…';
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      dot.className = 'dot loading';
+      text.textContent = 'Ingesting ' + filename + '…';
+      try {
+        const resp = await fetch('/api/ingest_file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename }),
+        });
+        const data = await resp.json();
+        if (data.error) {
+          addMessage('error', '<div class="label">Ingest Error</div>' + escapeHtml(data.error));
+        } else {
+          const replaced = data.replaced ? ' (replaced ' + data.replaced + ' old chunk' + (data.replaced === 1 ? '' : 's') + ')' : '';
+          addMessage('answer', '<div class="label">Ingest</div>Ingested <strong>'
+            + escapeHtml(data.source) + '</strong> — ' + data.chunks + ' chunks' + replaced + '.');
+          btn.textContent = 'Ingested ✓';
+        }
+      } catch (err) {
+        addMessage('error', '<div class="label">Error</div>' + escapeHtml(err.message));
+        btn.disabled = false;
+        btn.textContent = 'Ingest this file';
+      }
       checkStatus();
     }
 

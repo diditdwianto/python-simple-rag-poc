@@ -87,6 +87,31 @@ def create_index(overwrite: bool = True) -> None:
     get_index().create(overwrite=overwrite, drop=True)
 
 
+def ensure_index() -> None:
+    """Create the index only if it does not already exist. Never drops data.
+
+    Used by incremental (single-file) ingestion, which must add to the existing
+    index rather than wiping it like create_index(overwrite=True) does.
+    """
+    index = get_index()
+    if not index.exists():
+        index.create(overwrite=False, drop=False)
+
+
+def delete_source(source: str) -> int:
+    """Remove every chunk belonging to one source filename. Returns how many were
+    deleted. Lets a single file be re-ingested without duplicating its chunks."""
+    query = FilterQuery(
+        filter_expression=(Tag("source") == source),
+        return_fields=["source"],
+        num_results=10000,
+    )
+    keys = [r["id"] for r in get_index().query(query) if r.get("id")]
+    if keys:
+        get_index().drop_keys(keys)
+    return len(keys)
+
+
 def add_chunks(records: list[dict]) -> None:
     """Store chunk records.
 

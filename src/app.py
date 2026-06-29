@@ -5,13 +5,16 @@ Run:  python -m src.app
 
 import time
 import traceback
+from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
+from werkzeug.utils import secure_filename
 
 from src import config
 from src.embeddings import embed_query
 from src.generate import generate_stream, SYSTEM_PROMPT
+from src.ingest import DATA_DIR, TEXT_SUFFIXES, ingest_file
 from src.query import NO_INFO, build_user_prompt
 from src.store import apply_threshold, fetch_all, ping, search
 
@@ -133,6 +136,56 @@ def ingest():
         from src.ingest import main as run_ingest
         run_ingest()
         return jsonify({"status": "ok", "message": "Ingestion complete."})
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/upload", methods=["POST"])
+def upload():
+    """Save an uploaded .md file into data/ (alongside the other documents).
+
+    Does not ingest — the user triggers /api/ingest_file separately. On the next
+    full re-ingest the file is picked up automatically like any other in data/.
+    """
+    file = request.files.get("file")
+    if file is None or not file.filename:
+        return jsonify({"error": "No file provided."}), 400
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        return jsonify({"error": "Invalid filename."}), 400
+
+    suffix = Path(filename).suffix.lower()
+    if suffix not in TEXT_SUFFIXES:
+        return jsonify({"error": f"Unsupported file type '{suffix}'. Allowed: .md, .txt"}), 400
+    if filename.startswith(config.EXCLUDE_PREFIX):
+        return jsonify({
+            "error": f"Filename may not start with '{config.EXCLUDE_PREFIX}' (reserved for excluded files)."
+        }), 400
+
+    dest = DATA_DIR / filename
+    existed = dest.exists()
+    file.save(dest)
+    return jsonify({"status": "ok", "filename": filename, "replaced": existed})
+
+
+@app.route("/api/ingest_file", methods=["POST"])
+def ingest_single():
+    """Incrementally ingest one already-uploaded file from data/ into the index."""
+    data = request.get_json(force=True)
+    filename = (data.get("filename") or "").strip()
+    if not filename:
+        return jsonify({"error": "filename is required."}), 400
+    # Guard against path traversal: only operate on a bare filename in data/.
+    if filename != secure_filename(filename):
+        return jsonify({"error": "Invalid filename."}), 400
+
+    try:
+        result = ingest_file(filename)
+        return jsonify({"status": "ok", **result})
+    except (ValueError, FileNotFoundError) as exc:
+        return jsonify({"error": str(exc)}), 400
     except Exception as exc:
         traceback.print_exc()
         return jsonify({"error": str(exc)}), 500

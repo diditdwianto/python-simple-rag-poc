@@ -611,7 +611,11 @@
           addMessage('error', '<div class="label">Upload Error</div>' + escapeHtml(data.error));
         } else {
           const name = data.filename;
-          const note = data.replaced ? ' (replaced an existing file of the same name)' : '';
+          let note = data.replaced ? ' (replaced an existing file of the same name)' : '';
+          if (data.renamed_from) {
+            note += ' — renamed from <strong>' + escapeHtml(data.renamed_from)
+              + '</strong>, dropping the <code>exclude-</code> prefix so it can be ingested';
+          }
           const html = '<div class="label">Upload</div>'
             + 'Saved <strong>' + escapeHtml(name) + '</strong> to <code>data/</code>' + note + '. '
             + 'It will be ingested on the next full re-ingest, or ingest just this file now:'

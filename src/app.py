@@ -156,18 +156,30 @@ def upload():
     if not filename:
         return jsonify({"error": "Invalid filename."}), 400
 
+    # Files prefixed `exclude-` are skipped by ingestion. If one is uploaded,
+    # strip the prefix so it's saved as a normal, ingestable document.
+    renamed_from = None
+    if filename.startswith(config.EXCLUDE_PREFIX):
+        stripped = filename[len(config.EXCLUDE_PREFIX):]
+        if not Path(stripped).stem:
+            return jsonify({
+                "error": f"Nothing left after removing the '{config.EXCLUDE_PREFIX}' prefix from '{filename}'."
+            }), 400
+        renamed_from, filename = filename, stripped
+
     suffix = Path(filename).suffix.lower()
     if suffix not in TEXT_SUFFIXES:
         return jsonify({"error": f"Unsupported file type '{suffix}'. Allowed: .md, .txt"}), 400
-    if filename.startswith(config.EXCLUDE_PREFIX):
-        return jsonify({
-            "error": f"Filename may not start with '{config.EXCLUDE_PREFIX}' (reserved for excluded files)."
-        }), 400
 
     dest = DATA_DIR / filename
     existed = dest.exists()
     file.save(dest)
-    return jsonify({"status": "ok", "filename": filename, "replaced": existed})
+    return jsonify({
+        "status": "ok",
+        "filename": filename,
+        "replaced": existed,
+        "renamed_from": renamed_from,
+    })
 
 
 @app.route("/api/ingest_file", methods=["POST"])

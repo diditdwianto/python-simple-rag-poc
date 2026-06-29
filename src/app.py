@@ -15,7 +15,13 @@ from src import config
 from src.embeddings import embed_query
 from src.generate import generate_stream, SYSTEM_PROMPT
 from src.ingest import DATA_DIR, TEXT_SUFFIXES, ingest_file
-from src.query import NO_INFO, build_user_prompt
+from src.query import (
+    NO_INFO,
+    build_catalog,
+    build_user_prompt,
+    format_catalog_answer,
+    is_catalog_question,
+)
 from src.store import apply_threshold, fetch_all, ping, search
 
 load_dotenv()
@@ -62,6 +68,23 @@ def query():
         t = time.perf_counter()
         ping()
         steps.append({"label": "Loading index", "ms": (time.perf_counter() - t) * 1000})
+
+        # "What do you know?" style questions are answered from a catalog computed
+        # live from the index — no retrieval, no LLM, never out of date.
+        if is_catalog_question(question):
+            t = time.perf_counter()
+            catalog = build_catalog()
+            steps.append({
+                "label": "Building knowledge catalog",
+                "ms": (time.perf_counter() - t) * 1000,
+                "detail": f"{len(catalog)} documents",
+            })
+            return jsonify({
+                "answer": format_catalog_answer(catalog),
+                "sources": [c["source"] for c in catalog],
+                "context": [],
+                "activity": {"steps": steps, "total_ms": (time.perf_counter() - overall) * 1000},
+            })
 
         t = time.perf_counter()
         qvec = embed_query(question)

@@ -10,6 +10,10 @@
 
 This is a simple POC for RAG using Redis and Python.
 
+# Recent Activities
+![Alt](https://repobeats.axiom.co/api/embed/a2dcc5d30ca9650fb34e8d5ca6595e131818b1ae.svg "Repobeats analytics image")
+
+
 ## Quickstart (how to run)
 
 ```bash

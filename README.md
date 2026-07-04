@@ -1,14 +1,31 @@
-```
- ___        _ _      ___      _   _               ___    _   ___
-| _ \___ __| (_)___ | _ \_  _| |_| |_  ___ _ _   | _ \  /_\ / __|
-|   / -_) _` | (_-< |  _/ || |  _| ' \/ _ \ ' \  |   / / _ \ (_ |
-|_|_\___\__,_|_/__/ |_|  \_, |\__|_||_\___/_||_| |_|_\/_/ \_\___|
-                         |__/
-```
+<p align="center">
+  <img src="logo-2.png" alt="Redis Python RAG PoC" width="320">
+</p>
 
 # Python Simple RAG PoC
 
-This is a simple POC for RAG using Redis and Python.
+A minimal, end-to-end **Retrieval-Augmented Generation (RAG)** proof of concept —
+built to be as cheap and transparent as possible. It grounds a large language
+model in *your own* documents, so answers are accurate, **source-cited**, and
+honest about what they don't know (instead of hallucinating).
+
+Point it at a folder of `.txt` / `.md` files and it will chunk them, embed them
+locally with `bge-small`, and store the vectors in Redis. When you ask a
+question, it retrieves the most relevant passages and feeds them to **Llama 3.1**
+(via Groq's free tier) under strict "answer only from the provided context"
+rules. Everything runs on your machine except the final LLM call — no paid
+services, and the only key you need is a free Groq token.
+
+**Highlights:**
+
+- **Hybrid retrieval** — BM25 full-text + vector similarity, blended.
+- **Off-topic guard** — a distance threshold short-circuits questions the
+  corpus can't answer, so the model never guesses.
+- **Grounded & cited** — every answer points back to the source file it used.
+- **Web UI** — a dark-themed chat interface with live per-phase pipeline
+  timings, plus CLI tools for querying and debugging retrieval.
+- **Pluggable LLM** — swap Groq for a local Ollama model by editing one file;
+  embeddings, chunking, and storage stay the same.
 
 # Recent Activities
 ![Alt](https://repobeats.axiom.co/api/embed/a2dcc5d30ca9650fb34e8d5ca6595e131818b1ae.svg "Repobeats analytics image")

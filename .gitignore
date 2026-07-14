@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local corpus (data/)
+# The sample .md documents are tracked on purpose — they're the demo corpus.
+# Anything you ingest yourself is not: PDFs you upload are usually personal
+# (CVs, contracts, invoices) and this repo is public. Ignore them by default,
+# and `git add -f` the ones you actually want to publish.
+data/*.pdf
+
+# Markdown generated from a PDF by src/pdf.py. Derived artifacts — they can be
+# regenerated from the source PDF at any time, and they carry the same personal
+# content the PDF did. Listed by name because data/*.md is the tracked corpus.
+data/July2026_Didit-Dwianto-CV.md

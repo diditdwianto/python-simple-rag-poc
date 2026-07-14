@@ -153,20 +153,37 @@ def fetch_all() -> list[dict]:
 def apply_threshold(hits: list[dict]) -> list[dict]:
     """Relevance gate shared by every query path (the 'no info' short-circuit).
 
-    Each hit carries `vector_distance` (cosine distance) when it had a vector
-    match; hybrid hits found by text only carry None. If no hit is within
-    MAX_DISTANCE the whole result is treated as off-topic and dropped (so the
-    caller answers "I don't have enough information"). Otherwise vector hits
-    beyond the floor are dropped, while text-only matches ride along with the
-    relevant pool.
+    This makes TWO decisions, and they deliberately use different rules:
+
+    1. *Is the query on-topic at all?* Judged on the BEST hit against the
+       absolute floor MAX_DISTANCE. If even the closest chunk is beyond it,
+       nothing is returned and the caller answers "I don't have enough
+       information". This is what keeps junk questions out.
+
+    2. *Which chunks support the answer?* Judged RELATIVE to that best hit
+       (best + RELEVANCE_MARGIN). Once decision 1 says the corpus is relevant,
+       re-applying the absolute floor here is wrong: in a dense document the
+       answer often lives in a chunk that ranks 2nd and sits well past the
+       floor, so the absolute test discarded the chunk containing the answer
+       and kept only the document's header. Rank was right; the cutoff wasn't.
+
+    A hit needs vector support to survive. Hits found by BM25 alone (no
+    `vector_distance`) used to ride along, but hybrid_search normalises text
+    scores *within* each result set, so the top BM25 hit always scores 1.0 even
+    when it matched nothing but filler words — that let a chunk with zero
+    semantic relevance outrank the chunk holding the actual answer. BM25 still
+    earns its keep by *ranking* vector-supported hits (combined_score); it just
+    no longer admits chunks on its own.
     """
     distances = [h["vector_distance"] for h in hits if h.get("vector_distance") is not None]
     if not distances or min(distances) > config.MAX_DISTANCE:
         return []
+
+    cutoff = min(distances) + config.RELEVANCE_MARGIN
     return [
         h
         for h in hits
-        if h.get("vector_distance") is None or h["vector_distance"] <= config.MAX_DISTANCE
+        if h.get("vector_distance") is not None and h["vector_distance"] <= cutoff
     ]
 
 
@@ -253,12 +270,22 @@ def hybrid_search(
 
 
 def _text_search(query_text: str, source: str | None = None, k: int = 20) -> list[dict]:
-    """BM25 full-text search on the content field."""
+    """BM25 full-text search on the content field.
+
+    Terms are OR-ed. RediSearch treats space-separated terms inside a field as an
+    intersection, which for a natural-language question means "every word must
+    appear in the chunk" — no chunk ever contains 'how', 'many' AND 'stickearn',
+    so BM25 silently returned ZERO hits for every question and `SEARCH_MODE =
+    "hybrid"` quietly degraded to pure vector search. OR-ing restores recall and
+    lets BM25's IDF weighting do the ranking: a rare term like a company name
+    scores far above filler words like "how".
+    """
     from redis.commands.search.query import Query as FTQuery
 
-    cleaned = _sanitize_query(query_text)
-    if not cleaned:
+    terms = _sanitize_query(query_text).split()
+    if not terms:
         return []  # nothing searchable left (e.g. query was all punctuation)
+    cleaned = "|".join(terms)
 
     if source:
         q_str = f"(@source:{{{_escape_tag(source)}}}) (@content:({cleaned}))"

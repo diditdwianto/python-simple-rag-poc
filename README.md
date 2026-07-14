@@ -23,7 +23,7 @@ services, and the only key you need is a free Groq token.
 - **Off-topic guard** — a distance threshold short-circuits questions the
   corpus can't answer, so the model never guesses.
 - **Grounded & cited** — every answer points back to the source file it used.
-- **Web UI** — a dark-themed chat interface with live per-phase pipeline
+- **Web UI** — a clean light chat interface with live per-phase pipeline
   timings, plus CLI tools for querying and debugging retrieval.
 - **Pluggable LLM** — swap Groq for a local Ollama model by editing one file;
   embeddings, chunking, and storage stay the same.
@@ -72,7 +72,7 @@ After ingesting (`python -m src.ingest`), there are four ways to query:
 python -m src.app
 ```
 
-Opens a dark-themed web interface at **http://localhost:5555** (port configurable
+Opens a light-themed web interface at **http://localhost:5555** (port configurable
 in `src/config.py`). Type questions, see answers with source citations and
 expandable context chunks, filter by source file, re-ingest docs, and check
 index status — all from the browser.
@@ -170,14 +170,14 @@ Each module has a single responsibility. The two **entry points** you need to ru
 | `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/` (converting any `.pdf` to Markdown first), chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
 | `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks (hybrid BM25+vector when `SEARCH_MODE="hybrid"`), applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
 | `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Embeds the question, runs the KNN search, and prints each raw hit (distance, source, chunk_index, full chunk text) marked `KEEP`/`drop` against the distance threshold. Needs no Groq key. Useful for inspecting retrieval and tuning `TOP_K` / `MAX_DISTANCE`. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
-| `app.py` | **Entry point** for the web UI. Flask app serving a dark-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Routes: `/` (chat page), `/data` (browse every ingested chunk grouped by source). APIs: `/api/query` (POST — RAG query, also returns the exact system+user prompt sent to the LLM), `/api/data` (GET — all chunks by source), `/api/ingest` (POST — re-ingest docs), `/api/status` (GET — index health). Run with `python -m src.app`. |
+| `app.py` | **Entry point** for the web UI. Flask app serving a light-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Routes: `/` (chat page), `/data` (browse every ingested chunk grouped by source). APIs: `/api/query` (POST — RAG query, also returns the exact system+user prompt sent to the LLM), `/api/data` (GET — all chunks by source), `/api/ingest` (POST — re-ingest docs), `/api/status` (GET — index health). Run with `python -m src.app`. |
 | `__init__.py` | Empty file that marks `src/` as a Python package (so `python -m src.ingest` works). |
 
 **Flow:** `ingest.py` uses `chunking` + `embeddings` + `store`; `query.py` uses
 `embeddings` + `store` + `generate`; all of them read from `config`.
 
 ## Tech Stack
-- **Web UI:** Flask (dark-themed chat interface at `localhost:5555`)
+- **Web UI:** Flask (light-themed chat interface at `localhost:5555`)
 - Vector Store: Redis Stack (redisvl + redis-py) via Docker; FLAT index, COSINE distance
 - Retrieval: hybrid by default — BM25 full-text + vector KNN, blended (`SEARCH_MODE`, `HYBRID_ALPHA` in `config.py`)
 - Embeddings: Local sentence-transformer (currently `BAAI/bge-small-en-v1.5`, **384 dimensions**, strong retrieval quality, ~130 MB)

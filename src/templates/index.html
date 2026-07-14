@@ -7,16 +7,18 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
-      --bg: #0f1117;
-      --surface: #1a1d27;
-      --surface2: #242734;
-      --border: #2e3144;
-      --text: #e4e6f0;
-      --text-muted: #8b8fa3;
-      --primary: #6c8cff;
-      --primary-hover: #8da6ff;
-      --success: #4ade80;
-      --error: #f87171;
+      --bg: #ffffff;
+      --surface: #f7f7f8;
+      --surface2: #f0f0f1;
+      --border: #e5e5e5;
+      --text: #0d0d0d;
+      --text-muted: #6e6e80;
+      --primary: #10a37f;        /* accent: tags, meta, focus ring */
+      --primary-hover: #0e8f70;
+      --ink: #0d0d0d;            /* solid action buttons */
+      --ink-hover: #2f2f2f;
+      --success: #10a37f;
+      --error: #dc2626;
       --radius: 12px;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -27,6 +29,7 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      -webkit-font-smoothing: antialiased;
     }
     header {
       display: flex;
@@ -34,7 +37,7 @@
       justify-content: space-between;
       padding: 16px 24px;
       border-bottom: 1px solid var(--border);
-      background: var(--surface);
+      background: var(--bg);
     }
     header h1 {
       font-size: 1.25rem;
@@ -47,20 +50,22 @@
       padding: 12px 20px;
       border-radius: 12px;
       border: 1px solid var(--border);
-      background: var(--surface2);
+      background: var(--bg);
       color: var(--text);
       cursor: pointer;
       font-size: 0.9rem;
       font-weight: 500;
       transition: all 0.15s;
+      text-decoration: none;   /* "All Data" is an <a> styled as a button */
+      display: inline-block;
     }
-    .btn:hover { background: var(--border); }
+    .btn:hover { background: var(--surface); }
     .btn-primary {
-      background: var(--primary);
+      background: var(--ink);
       color: #fff;
-      border-color: var(--primary);
+      border-color: var(--ink);
     }
-    .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+    .btn-primary:hover { background: var(--ink-hover); border-color: var(--ink-hover); }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -94,7 +99,7 @@
     }
     .dot.ok { background: var(--success); }
     .dot.err { background: var(--error); }
-    .dot.loading { background: #facc15; animation: pulse 1s infinite; }
+    .dot.loading { background: #d97706; animation: pulse 1s infinite; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
     .chat-area {
@@ -116,27 +121,29 @@
     }
     @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
 
+    /* User turn: compact bubble, right-aligned (ChatGPT-style). */
     .msg-question {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      padding: 20px 28px;
-      font-size: 1rem;
-      line-height: 1.7;
-    }
-    .msg-question .label {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin-bottom: 10px;
-    }
-    .msg-answer {
+      align-self: flex-end;
+      max-width: 75%;
       background: var(--surface);
-      border: 1px solid rgba(108,140,255,0.2);
-      padding: 20px 28px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 12px 18px;
       font-size: 1rem;
-      line-height: 1.8;
+      line-height: 1.6;
+      animation: fadeIn 0.3s ease;
+    }
+    /* The bubble already says who is speaking. */
+    .msg-question .label { display: none; }
+
+    /* Assistant turn: no bubble, full width, plain on the page. */
+    .msg-answer {
+      background: transparent;
+      border: none;
+      padding: 4px 2px 0;
+      font-size: 1rem;
+      line-height: 1.75;
+      animation: fadeIn 0.3s ease;
     }
     .msg-answer .answer-body p { margin: 0 0 0.6em; }
     .msg-answer .answer-body ol, .msg-answer .answer-body ul { margin: 0 0 0.6em; padding-left: 1.5em; }
@@ -156,12 +163,14 @@
       margin-bottom: 10px;
     }
     .msg-error {
-      background: #2d1518;
-      border: 1px solid var(--error);
+      background: #fef2f2;
+      border: 1px solid #fecaca;
       border-left: 3px solid var(--error);
-      padding: 20px 28px;
+      border-radius: var(--radius);
+      padding: 16px 20px;
       font-size: 1rem;
       line-height: 1.7;
+      animation: fadeIn 0.3s ease;
     }
     .msg-error .label {
       font-size: 0.7rem;
@@ -206,11 +215,11 @@
     }
     .context-chunk {
       padding: 10px 14px;
-      background: var(--surface2);
+      background: var(--surface);
       border-radius: 8px;
       font-size: 0.82rem;
       line-height: 1.5;
-      color: var(--text-muted);
+      color: #3c3c43;   /* readable body text; --text-muted is for labels, not paragraphs */
       border: 1px solid var(--border);
     }
     .context-chunk .chunk-meta {
@@ -231,21 +240,24 @@
     }
     .input-area textarea {
       padding: 16px 20px;
-      background: var(--surface);
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 16px;
+      border-radius: 24px;
       color: var(--text);
       font-size: 1rem;
       line-height: 1.5;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, box-shadow 0.2s;
       resize: none;
       min-height: 56px;
       max-height: 200px;
       font-family: inherit;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
+    .input-area textarea::placeholder { color: var(--text-muted); }
     .input-area textarea:focus {
-      border-color: var(--primary);
+      border-color: var(--text-muted);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.10);
     }
     .source-row {
       display: flex;
@@ -254,7 +266,7 @@
     }
     .source-row input {
       padding: 10px 20px;
-      background: var(--surface);
+      background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 12px;
       color: var(--text);
@@ -264,7 +276,7 @@
       flex: 1;
     }
     .source-row input:focus {
-      border-color: var(--primary);
+      border-color: var(--text-muted);
     }
     .hint {
       font-size: 0.75rem;
@@ -304,10 +316,9 @@
       display: flex;
       align-items: center;
       gap: 4px;
-      padding: 20px 28px;
-      background: var(--surface);
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
+      padding: 8px 2px;
+      background: transparent;
+      border: none;
       color: var(--text-muted);
       font-size: 0.95rem;
     }
@@ -347,7 +358,7 @@
       font-size: 0.78rem;
       line-height: 1.5;
     }
-    .activity-substep .bolt { color: #facc15; }
+    .activity-substep .bolt { color: #b45309; }
     .activity-total {
       margin-top: 10px;
       padding-top: 8px;

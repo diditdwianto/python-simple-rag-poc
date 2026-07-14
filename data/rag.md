@@ -185,7 +185,7 @@ API endpoints:
 - POST /api/ingest — triggers document re-ingestion
 - GET /api/status — returns index name, document count, and record count
 
-The UI features a dark theme with a chat-style interface. Users type questions, see
+The UI features a light theme with a chat-style interface. Users type questions, see
 answers with source citations, and can expand retrieved context chunks to inspect
 distance scores and chunk content. A source filter input allows restricting retrieval
 to a specific document file. A "Re-ingest Docs" button triggers the full indexing

@@ -6,3 +6,6 @@ langchain-text-splitters>=0.3
 python-dotenv>=1.0
 flask>=3.0
 nltk>=3.8
+# PDF -> Markdown at upload time. Needs >=1.28 for the use_layout() toggle that
+# src/pdf.py relies on to run both extraction engines. Pulls in PyMuPDF (AGPL).
+pymupdf4llm>=1.28

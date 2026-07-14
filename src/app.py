@@ -14,7 +14,13 @@ from werkzeug.utils import secure_filename
 from src import config
 from src.embeddings import embed_query
 from src.generate import generate_stream, SYSTEM_PROMPT
-from src.ingest import DATA_DIR, TEXT_SUFFIXES, ingest_file
+from src.ingest import (
+    DATA_DIR,
+    PDF_SUFFIXES,
+    UPLOAD_SUFFIXES,
+    ensure_markdown,
+    ingest_file,
+)
 from src.query import (
     NO_INFO,
     build_catalog,
@@ -166,7 +172,11 @@ def ingest():
 
 @app.route("/api/upload", methods=["POST"])
 def upload():
-    """Save an uploaded .md file into data/ (alongside the other documents).
+    """Save an uploaded .md/.txt/.pdf file into data/ (alongside the other documents).
+
+    A PDF is converted to Markdown on arrival and it is that .md — not the PDF —
+    that the rest of the pipeline sees. The original PDF stays in data/ for
+    reference and re-conversion.
 
     Does not ingest — the user triggers /api/ingest_file separately. On the next
     full re-ingest the file is picked up automatically like any other in data/.
@@ -191,17 +201,39 @@ def upload():
         renamed_from, filename = filename, stripped
 
     suffix = Path(filename).suffix.lower()
-    if suffix not in TEXT_SUFFIXES:
-        return jsonify({"error": f"Unsupported file type '{suffix}'. Allowed: .md, .txt"}), 400
+    if suffix not in UPLOAD_SUFFIXES:
+        return jsonify({
+            "error": f"Unsupported file type '{suffix}'. Allowed: .md, .txt, .pdf"
+        }), 400
 
     dest = DATA_DIR / filename
-    existed = dest.exists()
+    # `replaced` always describes the document that will be ingested — for a PDF
+    # that's its Markdown twin, not the PDF itself.
+    existed = (dest.with_suffix(".md") if suffix in PDF_SUFFIXES else dest).exists()
     file.save(dest)
+
+    converted_from = None
+    if suffix in PDF_SUFFIXES:
+        try:
+            md_path, _ = ensure_markdown(dest)
+        except ValueError as exc:
+            # Nothing usable came out of the PDF — don't leave it lying in data/
+            # pretending to be an ingestable document.
+            dest.unlink(missing_ok=True)
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:
+            traceback.print_exc()
+            dest.unlink(missing_ok=True)
+            return jsonify({"error": f"Could not convert '{filename}': {exc}"}), 500
+        # From here on the Markdown twin is the document.
+        converted_from, filename = filename, md_path.name
+
     return jsonify({
         "status": "ok",
         "filename": filename,
         "replaced": existed,
         "renamed_from": renamed_from,
+        "converted_from": converted_from,
     })
 
 

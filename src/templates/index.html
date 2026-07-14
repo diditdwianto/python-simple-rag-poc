@@ -364,7 +364,7 @@
     <div class="header-actions">
       <a class="btn" href="/data">All Data</a>
       <button class="btn" id="btn-status" onclick="checkStatus()">Check Status</button>
-      <input type="file" id="file-input" accept=".md,.txt" hidden />
+      <input type="file" id="file-input" accept=".md,.txt,.pdf" hidden />
       <button class="btn" id="btn-upload" onclick="document.getElementById('file-input').click()">Upload Doc</button>
       <button class="btn" id="btn-ingest" onclick="runIngest()">Re-ingest Docs</button>
     </div>
@@ -598,10 +598,13 @@
       checkStatus();
     }
 
-    // Upload a .md/.txt file to data/. After it's saved, offer to ingest it.
+    // Upload a .md/.txt/.pdf file to data/. A PDF is converted to Markdown
+    // server-side and the .md is what gets ingested. After it's saved, offer to
+    // ingest it.
     async function uploadDoc(file) {
+      const isPdf = /\.pdf$/i.test(file.name);
       btnUpload.disabled = true;
-      btnUpload.textContent = 'Uploading…';
+      btnUpload.textContent = isPdf ? 'Converting…' : 'Uploading…';
       try {
         const fd = new FormData();
         fd.append('file', file);
@@ -616,8 +619,14 @@
             note += ' — renamed from <strong>' + escapeHtml(data.renamed_from)
               + '</strong>, dropping the <code>exclude-</code> prefix so it can be ingested';
           }
+          let lead = 'Saved <strong>' + escapeHtml(name) + '</strong> to <code>data/</code>' + note + '. ';
+          if (data.converted_from) {
+            lead = 'Converted <strong>' + escapeHtml(data.converted_from)
+              + '</strong> to Markdown as <strong>' + escapeHtml(name) + '</strong> in <code>data/</code>'
+              + note + '. The Markdown is what gets chunked, indexed and cited. ';
+          }
           const html = '<div class="label">Upload</div>'
-            + 'Saved <strong>' + escapeHtml(name) + '</strong> to <code>data/</code>' + note + '. '
+            + lead
             + 'It will be ingested on the next full re-ingest, or ingest just this file now:'
             + '<div style="margin-top:12px;">'
             + '<button class="btn btn-primary" onclick="ingestFile(this, \'' + encodeURIComponent(name) + '\')">Ingest this file</button>'

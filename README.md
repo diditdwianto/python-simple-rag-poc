@@ -9,8 +9,9 @@ built to be as cheap and transparent as possible. It grounds a large language
 model in *your own* documents, so answers are accurate, **source-cited**, and
 honest about what they don't know (instead of hallucinating).
 
-Point it at a folder of `.txt` / `.md` files and it will chunk them, embed them
-locally with `bge-small`, and store the vectors in Redis. When you ask a
+Point it at a folder of `.txt` / `.md` / `.pdf` files and it will chunk them,
+embed them locally with `bge-small`, and store the vectors in Redis. (PDFs are
+converted to Markdown on the way in — see [PDF support](#pdf-support).) When you ask a
 question, it retrieves the most relevant passages and feeds them to **Llama 3.1**
 (via Groq's free tier) under strict "answer only from the provided context"
 rules. Everything runs on your machine except the final LLM call — no paid
@@ -59,7 +60,7 @@ python -m src.app
 ```
 
 An out-of-corpus question returns: `I don't have enough information to answer that.`
-Put your own `.txt` / `.md` files in `data/` and re-run `python -m src.ingest`.
+Put your own `.txt` / `.md` / `.pdf` files in `data/` and re-run `python -m src.ingest`.
 
 ## Usage
 
@@ -118,13 +119,39 @@ what was ingested and how documents were split.
 
 ## Managing the corpus
 
-- **Add documents:** drop `.txt` / `.md` files into `data/` and re-run
+- **Add documents:** drop `.txt` / `.md` / `.pdf` files into `data/` and re-run
   `python -m src.ingest` (or click re-ingest in the web UI). Ingestion rebuilds
   the index from scratch each run, so there are no stale chunks or duplicates.
 - **Exclude a file without deleting it:** prefix its filename with `exclude-`
   (configurable via `EXCLUDE_PREFIX` in `config.py`). Ingestion skips any file
   whose name starts with that prefix and prints a `[SKIP]` line — handy for
   parking documents you don't want retrieved yet.
+
+## PDF support
+
+Upload a PDF in the web UI (or drop one into `data/`) and it is converted to
+Markdown before anything else happens. `report.pdf` becomes `report.md`, and it
+is that Markdown file — not the PDF — that gets chunked, embedded and cited, so
+you can open `/data` and read exactly what the model sees. The original PDF stays
+in `data/` alongside it; re-converting is automatic whenever the PDF is newer
+than its `.md`.
+
+Conversion uses [`pymupdf4llm`](https://pymupdf.readthedocs.io/), which rebuilds
+headings, lists and tables rather than dumping a flat blob of text — that
+structure is what the chunker splits on, so it directly improves retrieval.
+
+**One thing worth knowing.** `pymupdf4llm` has two extraction engines: an ML
+layout model and a classic font-size heuristic. Testing both across a pile of
+real-world PDFs showed that *each one silently drops text on documents the other
+handles perfectly* — the layout model lost 17% of the words in one form, and the
+heuristic lost 39% of a multi-column menu. Nothing errors; the text just
+disappears, which in a RAG system means a fact becomes permanently unretrievable
+while the index looks completely healthy.
+
+So `src/pdf.py` runs **both** engines, counts how many of the PDF's words survived
+each, and keeps the better one — falling back to raw text extraction if both
+mangle the document. Structure is nice to have; not losing your content is the
+requirement. If a conversion does lose text, it says so on the console.
 
 
 ## Source files (`src/`)
@@ -139,7 +166,8 @@ Each module has a single responsibility. The two **entry points** you need to ru
 | `embeddings.py` | Turns text into 384-dim vectors using the local `bge-small` model. Handles bge's query/document asymmetry: `embed_documents()` embeds chunks with **no prefix**; `embed_query()` prepends the query prefix. Both return normalized vectors. Same model for indexing and querying. |
 | `store.py` | The Redis store (via `redisvl`). Defines the index schema and provides `create_index()` (build/reset the index), `add_chunks()` (store vectors + text + metadata, converting floats to bytes), `fetch_all()` (list every chunk, for the data browser), and `search()`. `search()` dispatches on `SEARCH_MODE`: pure `vector_search()` (KNN, returns `vector_distance`) or `hybrid_search()` (BM25 text + vector blended in Python). This is the retrieval layer. |
 | `generate.py` | The LLM backend (generation step). Builds the grounded system prompt and sends context + question to Groq (`llama-3.1-8b-instant`) via `generate(user_prompt)  str`. Written as a **pluggable** backend - swapping to a local model later means changing only this file. |
-| `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/`, chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
+| `pdf.py` | Converts an uploaded `.pdf` into a `.md` in `data/` so the rest of the pipeline only ever deals with text. Runs both of `pymupdf4llm`'s extraction engines, scores each on how many of the PDF's words it preserved, and keeps the winner — with a plain-text fallback if both drop content. See [PDF support](#pdf-support). |
+| `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/` (converting any `.pdf` to Markdown first), chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
 | `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks (hybrid BM25+vector when `SEARCH_MODE="hybrid"`), applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
 | `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Embeds the question, runs the KNN search, and prints each raw hit (distance, source, chunk_index, full chunk text) marked `KEEP`/`drop` against the distance threshold. Needs no Groq key. Useful for inspecting retrieval and tuning `TOP_K` / `MAX_DISTANCE`. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
 | `app.py` | **Entry point** for the web UI. Flask app serving a dark-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Routes: `/` (chat page), `/data` (browse every ingested chunk grouped by source). APIs: `/api/query` (POST — RAG query, also returns the exact system+user prompt sent to the LLM), `/api/data` (GET — all chunks by source), `/api/ingest` (POST — re-ingest docs), `/api/status` (GET — index health). Run with `python -m src.app`. |

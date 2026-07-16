@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from src import config
 from src.embeddings import embed_query
 from src.generate import generate
+from src.rerank import rerank
 from src.store import apply_threshold, fetch_all, search
 
 NO_INFO = "I don't have enough information to answer that."
@@ -114,13 +115,24 @@ def format_catalog_answer(catalog: list[dict]) -> str:
 
 
 def retrieve(question: str, source: str | None = None) -> list[dict]:
-    """Embed the question, search (hybrid or vector), and apply the relevance gate.
+    """Two-stage retrieval, then the relevance gate.
+
+    Stage 1: embed the question and search (hybrid or vector). When reranking is
+    on we pull RERANK_FETCH_K candidates (a wide recall net) instead of TOP_K.
+    Stage 2: the cross-encoder rescores those candidates and keeps the best TOP_K.
+    Then apply_threshold gates on the resulting score.
 
     If `source` is given, retrieval is restricted to chunks from that file.
     Returns the surviving hits (empty list means off-topic / no info).
+
+    NOTE: app.py's /api/query runs this same sequence inline so it can time each
+    phase for the pipeline-activity panel — keep the two in sync.
     """
     qvec = embed_query(question)
-    hits = search(qvec, k=config.TOP_K, source=source, query_text=question)
+    fetch_k = config.RERANK_FETCH_K if config.RERANK_ENABLED else config.TOP_K
+    hits = search(qvec, k=fetch_k, source=source, query_text=question)
+    if config.RERANK_ENABLED:
+        hits = rerank(question, hits, top_n=config.TOP_K)
     return apply_threshold(hits)
 
 

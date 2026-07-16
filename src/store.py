@@ -153,19 +153,48 @@ def fetch_all() -> list[dict]:
 def apply_threshold(hits: list[dict]) -> list[dict]:
     """Relevance gate shared by every query path (the 'no info' short-circuit).
 
-    This makes TWO decisions, and they deliberately use different rules:
+    Both gates answer the same two questions — *is the query on-topic at all?*
+    (from the best hit) and *which chunks support the answer?* — but HOW depends
+    on the signal, because the two signals mean different things:
 
-    1. *Is the query on-topic at all?* Judged on the BEST hit against the
-       absolute floor MAX_DISTANCE. If even the closest chunk is beyond it,
-       nothing is returned and the caller answers "I don't have enough
-       information". This is what keeps junk questions out.
+    - Reranked hits carry a cross-encoder `rerank_score` (higher = better) that
+      measures query↔chunk relevance directly, a far stronger signal than cosine
+      distance. One absolute floor answers both questions → `_rerank_gate`.
+    - Without reranking we only have `vector_distance`, which mis-scores the
+      right chunk in absolute terms often enough that decision 2 needs a rule
+      *relative* to the best hit → `_distance_gate`.
 
-    2. *Which chunks support the answer?* Judged RELATIVE to that best hit
-       (best + RELEVANCE_MARGIN). Once decision 1 says the corpus is relevant,
-       re-applying the absolute floor here is wrong: in a dense document the
-       answer often lives in a chunk that ranks 2nd and sits well past the
-       floor, so the absolute test discarded the chunk containing the answer
-       and kept only the document's header. Rank was right; the cutoff wasn't.
+    Reranking wins when present; distance is the fallback.
+    """
+    if hits and hits[0].get("rerank_score") is not None:
+        return _rerank_gate(hits)
+    return _distance_gate(hits)
+
+
+def _rerank_gate(hits: list[dict]) -> list[dict]:
+    """Gate on cross-encoder score (higher = better) with a single absolute floor.
+
+    Unlike the distance gate, this needs only ONE threshold to do both jobs. The
+    cross-encoder scores relevance *directly*, so:
+      - if the BEST chunk is below RERANK_MIN_SCORE, nothing is relevant → "no info";
+      - otherwise every chunk clearing the floor is genuinely relevant enough to feed.
+    The distance gate's relative margin existed only because raw cosine distance
+    mis-scored the right chunk in absolute terms (a dense-document chunk landing
+    far out even when correct). A cross-encoder doesn't have that failure, so the
+    margin isn't needed here.
+
+    Calibrated on this corpus: on-topic best scores land 0.019–0.998, off-topic
+    top out at 0.005, so 0.01 cleanly separates them. NOTE the scale is
+    model-specific — bge-reranker emits 0..1 (sigmoid); a swap to a logit-scale
+    reranker (e.g. ms-marco-MiniLM, ~ -11..+11) needs RERANK_MIN_SCORE recalibrated.
+    """
+    if max(h["rerank_score"] for h in hits) < config.RERANK_MIN_SCORE:
+        return []
+    return [h for h in hits if h["rerank_score"] >= config.RERANK_MIN_SCORE]
+
+
+def _distance_gate(hits: list[dict]) -> list[dict]:
+    """Gate on cosine distance (lower = better), the no-reranker path.
 
     A hit needs vector support to survive. Hits found by BM25 alone (no
     `vector_distance`) used to ride along, but hybrid_search normalises text

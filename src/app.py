@@ -28,11 +28,18 @@ from src.query import (
     format_catalog_answer,
     is_catalog_question,
 )
+from src.rerank import rerank, warmup as warmup_reranker
 from src.store import apply_threshold, fetch_all, ping, search
 
 load_dotenv()
 
 app = Flask(__name__)
+
+# Long-running server: load the reranker at boot so the first query's "Reranking"
+# phase reflects actual reranking, not the one-time model load. (bge-small already
+# loads eagerly at import; this keeps the two consistent. CLI/tests load lazily.)
+if config.RERANK_ENABLED:
+    warmup_reranker()
 
 
 @app.route("/")
@@ -51,6 +58,8 @@ def _context_data(hits: list[dict]) -> list[dict]:
                 h["combined_score"] if "combined_score" in h else h["vector_distance"], 4
             ),
             "search_mode": "hybrid" if "combined_score" in h else "vector",
+            # Present only when stage-2 reranking ran; the UI shows it when set.
+            "rerank_score": round(h["rerank_score"], 3) if "rerank_score" in h else None,
         }
         for h in hits
     ]
@@ -96,15 +105,28 @@ def query():
         qvec = embed_query(question)
         steps.append({"label": "Embedding query", "ms": (time.perf_counter() - t) * 1000})
 
+        # Stage 1 (recall): pull a wide candidate set when reranking will narrow it.
+        # Mirrors query.retrieve() — kept inline here to time each phase separately.
         t = time.perf_counter()
-        hits = apply_threshold(
-            search(qvec, k=config.TOP_K, source=source, query_text=question)
-        )
+        fetch_k = config.RERANK_FETCH_K if config.RERANK_ENABLED else config.TOP_K
+        candidates = search(qvec, k=fetch_k, source=source, query_text=question)
         steps.append({
             "label": f"Searching index ({config.SEARCH_MODE})",
             "ms": (time.perf_counter() - t) * 1000,
-            "detail": f"{len(hits)} hits",
+            "detail": f"{len(candidates)} candidates",
         })
+
+        # Stage 2 (precision): cross-encoder rescores the candidates, keeps TOP_K.
+        if config.RERANK_ENABLED:
+            t = time.perf_counter()
+            candidates = rerank(question, candidates, top_n=config.TOP_K)
+            steps.append({
+                "label": f"Reranking ({config.RERANK_MODEL})",
+                "ms": (time.perf_counter() - t) * 1000,
+                "detail": f"{len(candidates)} kept",
+            })
+
+        hits = apply_threshold(candidates)
 
         if not hits:
             return jsonify({

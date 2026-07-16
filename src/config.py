@@ -31,6 +31,23 @@ RELEVANCE_MARGIN = 0.15  # Once the best hit clears MAX_DISTANCE the query IS on
 SEARCH_MODE = "hybrid"  # "vector" (pure vector KNN) or "hybrid" (BM25 + vector combined)
 HYBRID_ALPHA = 0.7      # weight of vector score in hybrid search (0.0 = text only, 1.0 = vector only)
 
+# Reranking (stage 2). A cross-encoder rescores the stage-1 candidates by reading
+# each (question, chunk) pair jointly — far more accurate than the bi-encoder's
+# independent vectors. See src/rerank.py.
+RERANK_ENABLED = True
+RERANK_MODEL = "BAAI/bge-reranker-base"  # local CrossEncoder; pairs with bge-small. Swappable
+                                          # for the lighter "cross-encoder/ms-marco-MiniLM-L-6-v2".
+RERANK_FETCH_K = 20   # stage-1 candidates to pull BEFORE reranking (recall net). Reranked down
+                       # to TOP_K. Bigger = more chances to surface a buried chunk, but slower.
+# When reranking is on, the relevance gate keys on rerank_score instead of cosine
+# distance (see store._rerank_gate). One absolute floor does both jobs: a query whose
+# best chunk scores below it is off-topic ("no info"); every chunk clearing it is fed.
+# Calibrated on this corpus: on-topic best scores land 0.019–0.998, off-topic top out at
+# 0.005, so 0.01 separates them cleanly. ⚠️ SCALE IS MODEL-SPECIFIC: bge-reranker emits
+# 0..1 (sigmoid); a logit-scale reranker (e.g. ms-marco-MiniLM, ~ -11..+11) needs this
+# recalibrated. Retune with scripts against a few on-/off-topic questions after any swap.
+RERANK_MIN_SCORE = 0.01
+
 # Generation
 GEN_MODEL = "llama-3.1-8b-instant"   # Groq
 TEMPERATURE = 0.0

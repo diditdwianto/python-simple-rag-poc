@@ -19,8 +19,9 @@ services, and the only key you need is a free Groq token.
 
 **Highlights:**
 
-- **Hybrid retrieval** — BM25 full-text + vector similarity, blended.
-- **Off-topic guard** — a distance threshold short-circuits questions the
+- **Two-stage retrieval** — hybrid BM25 + vector recall, then a local
+  cross-encoder **reranker** rescores the candidates for precision.
+- **Off-topic guard** — a relevance threshold short-circuits questions the
   corpus can't answer, so the model never guesses.
 - **Grounded & cited** — every answer points back to the source file it used.
 - **Web UI** — a clean light chat interface with live per-phase pipeline
@@ -154,6 +155,38 @@ mangle the document. Structure is nice to have; not losing your content is the
 requirement. If a conversion does lose text, it says so on the console.
 
 
+## Reranking (two-stage retrieval)
+
+Retrieval runs in two stages. **Stage 1** is the hybrid BM25 + vector search — a
+*bi-encoder*: it embeds the question and each chunk independently and compares
+vectors. Fast (chunk vectors are precomputed at ingest), but it never sees the
+question and a chunk *together*, so it can't reason about how they actually
+relate. It casts a wide, cheap net (`RERANK_FETCH_K` candidates). **Stage 2** is
+`BAAI/bge-reranker-base`, a *cross-encoder*: it feeds each `(question, chunk)`
+pair through one model jointly and scores relevance directly — much more
+accurate, but too slow to run over the whole corpus, which is why it only ever
+rescores the handful stage 1 surfaced. Cast wide, then read closely. It's local
+and free (`sentence-transformers`, no key), and toggleable with `RERANK_ENABLED`.
+
+**Why it's here.** The bi-encoder placed some answers past *any* usable distance
+threshold. On the sample CV, "What did Didit do at StickEarn?" ranked the right
+chunk but scored it 0.476 — literally *worse* than off-topic questions — so no
+cosine cutoff could admit it without also admitting junk. The cross-encoder
+scores that exact pair on relevance directly: measured on this corpus, on-topic
+questions score 0.019–0.998 and off-topic ones 0.000–0.005, a clean gap the raw
+vectors never had. The relevance gate keys on that score when reranking is on
+(`RERANK_MIN_SCORE`); the score scale is model-specific, so swapping the reranker
+means recalibrating that one number.
+
+**An honest limitation.** Reranking is not magic — it's only as good as the
+model's judgement. "Where did Didit study?" still returns no-info, because the
+education chunk ("Bachelor of Information Technology — …") contains neither the
+name "Didit" nor the word "study", so the reranker scores it 0.002 — below even
+off-topic noise. No threshold rescues that without letting junk through; the real
+fix is better *chunking* (carry the document's subject into each chunk) or a
+stronger reranker. Retrieval quality still bottoms out at what the models can see.
+
+
 ## Source files (`src/`)
 
 Each module has a single responsibility. The two **entry points** you need to run are
@@ -165,21 +198,22 @@ Each module has a single responsibility. The two **entry points** you need to ru
 | `chunking.py` | Splits a document's text into overlapping chunks with a recursive character splitter (breaks on paragraphs → sentences → words). Chunks are sized to stay under the embedder's token limit. Exposes `chunk_text(text) -> list[str]`. |
 | `embeddings.py` | Turns text into 384-dim vectors using the local `bge-small` model. Handles bge's query/document asymmetry: `embed_documents()` embeds chunks with **no prefix**; `embed_query()` prepends the query prefix. Both return normalized vectors. Same model for indexing and querying. |
 | `store.py` | The Redis store (via `redisvl`). Defines the index schema and provides `create_index()` (build/reset the index), `add_chunks()` (store vectors + text + metadata, converting floats to bytes), `fetch_all()` (list every chunk, for the data browser), and `search()`. `search()` dispatches on `SEARCH_MODE`: pure `vector_search()` (KNN, returns `vector_distance`) or `hybrid_search()` (BM25 text + vector blended in Python). This is the retrieval layer. |
+| `rerank.py` | **Stage 2 of retrieval.** A local cross-encoder (`BAAI/bge-reranker-base`) rescores the stage-1 candidates by reading each `(question, chunk)` pair jointly — far more accurate than the bi-encoder's independent vectors. `rerank(question, hits, top_n)` attaches a `rerank_score` and keeps the best. Loaded lazily and cached; toggle with `RERANK_ENABLED`. |
 | `generate.py` | The LLM backend (generation step). Builds the grounded system prompt and sends context + question to Groq (`llama-3.1-8b-instant`) via `generate(user_prompt)  str`. Written as a **pluggable** backend - swapping to a local model later means changing only this file. |
 | `pdf.py` | Converts an uploaded `.pdf` into a `.md` in `data/` so the rest of the pipeline only ever deals with text. Runs both of `pymupdf4llm`'s extraction engines, scores each on how many of the PDF's words it preserved, and keeps the winner — with a plain-text fallback if both drop content. See [PDF support](#pdf-support). |
 | `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/` (converting any `.pdf` to Markdown first), chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
-| `query.py` | **Entry point** for the query phase. Embeds the question, retrieves the closest chunks (hybrid BM25+vector when `SEARCH_MODE="hybrid"`), applies the distance threshold, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
-| `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Embeds the question, runs the KNN search, and prints each raw hit (distance, source, chunk_index, full chunk text) marked `KEEP`/`drop` against the distance threshold. Needs no Groq key. Useful for inspecting retrieval and tuning `TOP_K` / `MAX_DISTANCE`. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
+| `query.py` | **Entry point** for the query phase. Two-stage retrieval — stage 1 hybrid search (BM25+vector) pulls `RERANK_FETCH_K` candidates, stage 2 reranking keeps the best `TOP_K` — then applies the relevance gate, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
+| `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Runs the same two-stage retrieval and prints each hit (rerank score, distance, source, chunk_index, full text) marked `KEEP`/`drop` by the gate. `--no-rerank` shows the raw stage-1 order. Needs no Groq key. Useful for inspecting retrieval and tuning thresholds. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
 | `app.py` | **Entry point** for the web UI. Flask app serving a light-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Routes: `/` (chat page), `/data` (browse every ingested chunk grouped by source). APIs: `/api/query` (POST — RAG query, also returns the exact system+user prompt sent to the LLM), `/api/data` (GET — all chunks by source), `/api/ingest` (POST — re-ingest docs), `/api/status` (GET — index health). Run with `python -m src.app`. |
 | `__init__.py` | Empty file that marks `src/` as a Python package (so `python -m src.ingest` works). |
 
 **Flow:** `ingest.py` uses `chunking` + `embeddings` + `store`; `query.py` uses
-`embeddings` + `store` + `generate`; all of them read from `config`.
+`embeddings` + `store` + `rerank` + `generate`; all of them read from `config`.
 
 ## Tech Stack
 - **Web UI:** Flask (light-themed chat interface at `localhost:5555`)
 - Vector Store: Redis Stack (redisvl + redis-py) via Docker; FLAT index, COSINE distance
-- Retrieval: hybrid by default — BM25 full-text + vector KNN, blended (`SEARCH_MODE`, `HYBRID_ALPHA` in `config.py`)
+- Retrieval: two-stage — hybrid BM25 + vector KNN recall (`SEARCH_MODE`, `HYBRID_ALPHA`), then cross-encoder reranking with `BAAI/bge-reranker-base` (`RERANK_*` in `config.py`, toggle `RERANK_ENABLED`)
 - Embeddings: Local sentence-transformer (currently `BAAI/bge-small-en-v1.5`, **384 dimensions**, strong retrieval quality, ~130 MB)
     - Alternative: `all-MiniLM-L6-v2` — also 384 dimensions, classic lightweight baseline, very fast
 - LLM (generation): `llama-3.1-8b-instant` via Groq (free tier) - pluggable backend

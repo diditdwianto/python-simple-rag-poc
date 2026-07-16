@@ -4,29 +4,29 @@
 
 # Python Simple RAG PoC
 
-A minimal, end-to-end **Retrieval-Augmented Generation (RAG)** proof of concept —
-built to be as cheap and transparent as possible. It grounds a large language
+A minimal, end-to-end **Retrieval-Augmented Generation (RAG)** proof of concept
+(built to be as cheap and transparent as possible). It grounds a large language
 model in *your own* documents, so answers are accurate, **source-cited**, and
 honest about what they don't know (instead of hallucinating).
 
 Point it at a folder of `.txt` / `.md` / `.pdf` files and it will chunk them,
 embed them locally with `bge-small`, and store the vectors in Redis. (PDFs are
-converted to Markdown on the way in — see [PDF support](#pdf-support).) When you ask a
+converted to Markdown on the way in ... see [PDF support](#pdf-support).) When you ask a
 question, it retrieves the most relevant passages and feeds them to **Llama 3.1**
 (via Groq's free tier) under strict "answer only from the provided context"
-rules. Everything runs on your machine except the final LLM call — no paid
-services, and the only key you need is a free Groq token.
+rules. Everything runs on your machine except the final LLM call (no paid
+services, and the only key you need is a free Groq token).
 
 **Highlights:**
 
-- **Two-stage retrieval** — hybrid BM25 + vector recall, then a local
+- **Two-stage retrieval** ... hybrid BM25 + vector recall, then a local
   cross-encoder **reranker** rescores the candidates for precision.
-- **Off-topic guard** — a relevance threshold short-circuits questions the
+- **Off-topic guard** ... a relevance threshold short-circuits questions the
   corpus can't answer, so the model never guesses.
-- **Grounded & cited** — every answer points back to the source file it used.
-- **Web UI** — a clean light chat interface with live per-phase pipeline
+- **Grounded & cited** ... every answer points back to the source file it used.
+- **Web UI** ... a clean light chat interface with live per-phase pipeline
   timings, plus CLI tools for querying and debugging retrieval.
-- **Pluggable LLM** — swap Groq for a local Ollama model by editing one file;
+- **Pluggable LLM** ... swap Groq for a local Ollama model by editing one file;
   embeddings, chunking, and storage stay the same.
 
 # Recent Activities
@@ -76,7 +76,7 @@ python -m src.app
 Opens a light-themed web interface at **http://localhost:5555** (port configurable
 in `src/config.py`). Type questions, see answers with source citations and
 expandable context chunks, filter by source file, re-ingest docs, and check
-index status — all from the browser.
+index status (all from the browser).
 
 ### 2. Ask a question (full RAG answer)
 
@@ -94,7 +94,7 @@ returns a concise, **source-cited** answer. Off-topic questions return
 python -m src.query_raw "What flavors does RainbowCandy have?"
 ```
 
-Shows exactly what Redis returns — each hit's **distance, source, chunk_index,
+Shows exactly what Redis returns ... each hit's **distance, source, chunk_index,
 and full text**, marked `KEEP`/`drop` against the distance threshold. Needs no
 Groq key. Use it to debug retrieval and tune `TOP_K` / `MAX_DISTANCE` in
 `src/config.py`.
@@ -125,52 +125,52 @@ what was ingested and how documents were split.
   the index from scratch each run, so there are no stale chunks or duplicates.
 - **Exclude a file without deleting it:** prefix its filename with `exclude-`
   (configurable via `EXCLUDE_PREFIX` in `config.py`). Ingestion skips any file
-  whose name starts with that prefix and prints a `[SKIP]` line — handy for
-  parking documents you don't want retrieved yet.
+  whose name starts with that prefix and prints a `[SKIP]` line (handy for
+  parking documents you don't want retrieved yet).
 
 ## PDF support
 
 Upload a PDF in the web UI (or drop one into `data/`) and it is converted to
 Markdown before anything else happens. `report.pdf` becomes `report.md`, and it
-is that Markdown file — not the PDF — that gets chunked, embedded and cited, so
+is that Markdown file (not the PDF) that gets chunked, embedded and cited, so
 you can open `/data` and read exactly what the model sees. The original PDF stays
 in `data/` alongside it; re-converting is automatic whenever the PDF is newer
 than its `.md`.
 
 Conversion uses [`pymupdf4llm`](https://pymupdf.readthedocs.io/), which rebuilds
-headings, lists and tables rather than dumping a flat blob of text — that
+headings, lists and tables rather than dumping a flat blob of text ... that
 structure is what the chunker splits on, so it directly improves retrieval.
 
 **One thing worth knowing.** `pymupdf4llm` has two extraction engines: an ML
 layout model and a classic font-size heuristic. Testing both across a pile of
 real-world PDFs showed that *each one silently drops text on documents the other
-handles perfectly* — the layout model lost 17% of the words in one form, and the
+handles perfectly* ... the layout model lost 17% of the words in one form, and the
 heuristic lost 39% of a multi-column menu. Nothing errors; the text just
 disappears, which in a RAG system means a fact becomes permanently unretrievable
 while the index looks completely healthy.
 
 So `src/pdf.py` runs **both** engines, counts how many of the PDF's words survived
-each, and keeps the better one — falling back to raw text extraction if both
-mangle the document. Structure is nice to have; not losing your content is the
+each, and keeps the better one (falling back to raw text extraction if both
+mangle the document). Structure is nice to have; not losing your content is the
 requirement. If a conversion does lose text, it says so on the console.
 
 
 ## Reranking (two-stage retrieval)
 
-Retrieval runs in two stages. **Stage 1** is the hybrid BM25 + vector search — a
-*bi-encoder*: it embeds the question and each chunk independently and compares
+Retrieval runs in two stages. **Stage 1** is the hybrid BM25 + vector search (a
+*bi-encoder*): it embeds the question and each chunk independently and compares
 vectors. Fast (chunk vectors are precomputed at ingest), but it never sees the
 question and a chunk *together*, so it can't reason about how they actually
 relate. It casts a wide, cheap net (`RERANK_FETCH_K` candidates). **Stage 2** is
 `BAAI/bge-reranker-base`, a *cross-encoder*: it feeds each `(question, chunk)`
-pair through one model jointly and scores relevance directly — much more
+pair through one model jointly and scores relevance directly ... much more
 accurate, but too slow to run over the whole corpus, which is why it only ever
 rescores the handful stage 1 surfaced. Cast wide, then read closely. It's local
 and free (`sentence-transformers`, no key), and toggleable with `RERANK_ENABLED`.
 
 **Why it's here.** The bi-encoder placed some answers past *any* usable distance
 threshold. On the sample CV, "What did Didit do at StickEarn?" ranked the right
-chunk but scored it 0.476 — literally *worse* than off-topic questions — so no
+chunk but scored it 0.476 (literally *worse* than off-topic questions), so no
 cosine cutoff could admit it without also admitting junk. The cross-encoder
 scores that exact pair on relevance directly: measured on this corpus, on-topic
 questions score 0.019–0.998 and off-topic ones 0.000–0.005, a clean gap the raw
@@ -178,11 +178,22 @@ vectors never had. The relevance gate keys on that score when reranking is on
 (`RERANK_MIN_SCORE`); the score scale is model-specific, so swapping the reranker
 means recalibrating that one number.
 
-**An honest limitation.** Reranking is not magic — it's only as good as the
+**Cost (the tradeoff).** The accuracy isn't free. On an M1 CPU, `bge-reranker-base`
+(278M params) takes roughly 0.8 to 1.7 s per query to rescore the `RERANK_FETCH_K`
+= 20 candidates, which about doubles end-to-end latency (the Groq LLM call is
+~0.7 s). The one-time model load (~10 s) is paid at web-server startup via
+`rerank.warmup()`, not inside the first request, so it never stalls a query. If
+that's too slow, three dials help: switch `RERANK_MODEL` to the much lighter
+`cross-encoder/ms-marco-MiniLM-L-6-v2` (~80 MB, several times faster, but recalibrate
+`RERANK_MIN_SCORE` since its scores are raw logits, not 0..1); lower `RERANK_FETCH_K`
+so fewer pairs are scored; or set `RERANK_ENABLED = False` to skip stage 2 entirely
+and fall back to the distance-gated single-stage retrieval.
+
+**An honest limitation.** Reranking is not magic ... it's only as good as the
 model's judgement. "Where did Didit study?" still returns no-info, because the
-education chunk ("Bachelor of Information Technology — …") contains neither the
-name "Didit" nor the word "study", so the reranker scores it 0.002 — below even
-off-topic noise. No threshold rescues that without letting junk through; the real
+education chunk ("Bachelor of Information Technology ...") contains neither the
+name "Didit" nor the word "study", so the reranker scores it 0.002 (below even
+off-topic noise). No threshold rescues that without letting junk through; the real
 fix is better *chunking* (carry the document's subject into each chunk) or a
 stronger reranker. Retrieval quality still bottoms out at what the models can see.
 
@@ -198,13 +209,13 @@ Each module has a single responsibility. The two **entry points** you need to ru
 | `chunking.py` | Splits a document's text into overlapping chunks with a recursive character splitter (breaks on paragraphs → sentences → words). Chunks are sized to stay under the embedder's token limit. Exposes `chunk_text(text) -> list[str]`. |
 | `embeddings.py` | Turns text into 384-dim vectors using the local `bge-small` model. Handles bge's query/document asymmetry: `embed_documents()` embeds chunks with **no prefix**; `embed_query()` prepends the query prefix. Both return normalized vectors. Same model for indexing and querying. |
 | `store.py` | The Redis store (via `redisvl`). Defines the index schema and provides `create_index()` (build/reset the index), `add_chunks()` (store vectors + text + metadata, converting floats to bytes), `fetch_all()` (list every chunk, for the data browser), and `search()`. `search()` dispatches on `SEARCH_MODE`: pure `vector_search()` (KNN, returns `vector_distance`) or `hybrid_search()` (BM25 text + vector blended in Python). This is the retrieval layer. |
-| `rerank.py` | **Stage 2 of retrieval.** A local cross-encoder (`BAAI/bge-reranker-base`) rescores the stage-1 candidates by reading each `(question, chunk)` pair jointly — far more accurate than the bi-encoder's independent vectors. `rerank(question, hits, top_n)` attaches a `rerank_score` and keeps the best. Loaded lazily and cached; toggle with `RERANK_ENABLED`. |
+| `rerank.py` | **Stage 2 of retrieval.** A local cross-encoder (`BAAI/bge-reranker-base`) rescores the stage-1 candidates by reading each `(question, chunk)` pair jointly (far more accurate than the bi-encoder's independent vectors). `rerank(question, hits, top_n)` attaches a `rerank_score` and keeps the best. Loaded lazily and cached; toggle with `RERANK_ENABLED`. |
 | `generate.py` | The LLM backend (generation step). Builds the grounded system prompt and sends context + question to Groq (`llama-3.1-8b-instant`) via `generate(user_prompt)  str`. Written as a **pluggable** backend - swapping to a local model later means changing only this file. |
-| `pdf.py` | Converts an uploaded `.pdf` into a `.md` in `data/` so the rest of the pipeline only ever deals with text. Runs both of `pymupdf4llm`'s extraction engines, scores each on how many of the PDF's words it preserved, and keeps the winner — with a plain-text fallback if both drop content. See [PDF support](#pdf-support). |
+| `pdf.py` | Converts an uploaded `.pdf` into a `.md` in `data/` so the rest of the pipeline only ever deals with text. Runs both of `pymupdf4llm`'s extraction engines, scores each on how many of the PDF's words it preserved, and keeps the winner (with a plain-text fallback if both drop content). See [PDF support](#pdf-support). |
 | `ingest.py` | **Entry point** for the indexing phase. Loads every `.txt`/`.md` in `data/` (converting any `.pdf` to Markdown first), chunks → embeds → stores them in Redis. Run with `python -m src.ingest`. |
-| `query.py` | **Entry point** for the query phase. Two-stage retrieval — stage 1 hybrid search (BM25+vector) pulls `RERANK_FETCH_K` candidates, stage 2 reranking keeps the best `TOP_K` — then applies the relevance gate, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
-| `query_raw.py` | **Entry point (debug)** for retrieval only — no LLM. Runs the same two-stage retrieval and prints each hit (rerank score, distance, source, chunk_index, full text) marked `KEEP`/`drop` by the gate. `--no-rerank` shows the raw stage-1 order. Needs no Groq key. Useful for inspecting retrieval and tuning thresholds. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
-| `app.py` | **Entry point** for the web UI. Flask app serving a light-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Routes: `/` (chat page), `/data` (browse every ingested chunk grouped by source). APIs: `/api/query` (POST — RAG query, also returns the exact system+user prompt sent to the LLM), `/api/data` (GET — all chunks by source), `/api/ingest` (POST — re-ingest docs), `/api/status` (GET — index health). Run with `python -m src.app`. |
+| `query.py` | **Entry point** for the query phase. Two-stage retrieval ... stage 1 hybrid search (BM25+vector) pulls `RERANK_FETCH_K` candidates, stage 2 reranking keeps the best `TOP_K` ... then applies the relevance gate, builds the grounded prompt, and returns the answer. Run with `python -m src.query "..."`. Optional `--source <file>` restricts retrieval to one source file (metadata filtering). |
+| `query_raw.py` | **Entry point (debug)** for retrieval only (no LLM). Runs the same two-stage retrieval and prints each hit (rerank score, distance, source, chunk_index, full text) marked `KEEP`/`drop` by the gate. `--no-rerank` shows the raw stage-1 order. Needs no Groq key. Useful for inspecting retrieval and tuning thresholds. Run with `python -m src.query_raw "..."`. Also supports `--source <file>`. |
+| `app.py` | **Entry point** for the web UI. Flask app serving a light-themed chat interface at `http://localhost:5555` (port configured in `config.py`). Routes: `/` (chat page), `/data` (browse every ingested chunk grouped by source). APIs: `/api/query` (POST ... RAG query, also returns the exact system+user prompt sent to the LLM), `/api/data` (GET ... all chunks by source), `/api/ingest` (POST ... re-ingest docs), `/api/status` (GET ... index health). Run with `python -m src.app`. |
 | `__init__.py` | Empty file that marks `src/` as a Python package (so `python -m src.ingest` works). |
 
 **Flow:** `ingest.py` uses `chunking` + `embeddings` + `store`; `query.py` uses
@@ -213,9 +224,9 @@ Each module has a single responsibility. The two **entry points** you need to ru
 ## Tech Stack
 - **Web UI:** Flask (light-themed chat interface at `localhost:5555`)
 - Vector Store: Redis Stack (redisvl + redis-py) via Docker; FLAT index, COSINE distance
-- Retrieval: two-stage — hybrid BM25 + vector KNN recall (`SEARCH_MODE`, `HYBRID_ALPHA`), then cross-encoder reranking with `BAAI/bge-reranker-base` (`RERANK_*` in `config.py`, toggle `RERANK_ENABLED`)
+- Retrieval: two-stage ... hybrid BM25 + vector KNN recall (`SEARCH_MODE`, `HYBRID_ALPHA`), then cross-encoder reranking with `BAAI/bge-reranker-base` (`RERANK_*` in `config.py`, toggle `RERANK_ENABLED`)
 - Embeddings: Local sentence-transformer (currently `BAAI/bge-small-en-v1.5`, **384 dimensions**, strong retrieval quality, ~130 MB)
-    - Alternative: `all-MiniLM-L6-v2` — also 384 dimensions, classic lightweight baseline, very fast
+    - Alternative: `all-MiniLM-L6-v2` (also 384 dimensions, classic lightweight baseline, very fast)
 - LLM (generation): `llama-3.1-8b-instant` via Groq (free tier) - pluggable backend
 - Orchestration: Plain python first; then add LangChain/Llamaindex only if we want abstraction
 
@@ -369,7 +380,7 @@ How a chunk is stored
 
 1. Embed the question with bge-small
 2. Find the 5 closest chunks by cosine distance (vector similarity only)
-3. Filter out anything with distance > `MAX_DISTANCE` (0.40 — tuned so off-topic queries short-circuit to "I don't have enough information")
+3. Filter out anything with distance > `MAX_DISTANCE` (0.40 ... tuned so off-topic queries short-circuit to "I don't have enough information")
 4. Send surviving chunks to the LLM
 
 Weakness: If the user's wording differs from the chunk's wording, the vector may miss it. e.g. asking "RDBMS analogy" might not vector-match a chunk that uses words like "row" and "column" without ever saying "RDBMS".
@@ -377,11 +388,11 @@ Weakness: If the user's wording differs from the chunk's wording, the vector may
 ## After: Hybrid Search (BM25 + Vector)
 
 1. Run two searches in parallel:
-- BM25 text search — classic keyword search on the content field. Finds exact word matches like "RDBMS", "row", "index". Returns top 15 chunks ranked by text relevance score.
-- Vector KNN search — same as before, returns top 15 chunks by cosine similarity.
+- BM25 text search ... classic keyword search on the content field. Finds exact word matches like "RDBMS", "row", "index". Returns top 15 chunks ranked by text relevance score.
+- Vector KNN search ... same as before, returns top 15 chunks by cosine similarity.
 2. Normalize both score sets to 0–1 range (so text scores and vector scores are comparable).
 3. Combine with weighted linear blend:
 final_score = 0.7 × vector_score + 0.3 × text_score
-(HYBRID_ALPHA = 0.7 — mostly vector, with a text boost)
+(HYBRID_ALPHA = 0.7 ... mostly vector, with a text boost)
 4. Sort by combined score, take top 5, send to LLM.
 Why it's better: A chunk that ranks #8 on vector alone might rank #1 on BM25 keywords. The blend surfaces it. Pure vector search would have missed it entirely since it only looked at the top 5.

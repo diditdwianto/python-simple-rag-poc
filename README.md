@@ -4,7 +4,7 @@
 
 # Python Simple RAG PoC
 
-https://github.com/diditdwianto/python-simple-rag-poc/raw/main/rag-explainer.mp4
+https://github.com/user-attachments/assets/3555d22e-529d-4529-848a-4b13c2787363
 
 <p align="center">
   <em>A 2-minute walkthrough of how this RAG pipeline works.</em>

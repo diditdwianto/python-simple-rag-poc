@@ -4,6 +4,12 @@
 
 # Python Simple RAG PoC
 
+https://github.com/diditdwianto/python-simple-rag-poc/raw/main/rag-explainer.mp4
+
+<p align="center">
+  <em>A 2-minute walkthrough of how this RAG pipeline works.</em>
+</p>
+
 A minimal, end-to-end **Retrieval-Augmented Generation (RAG)** proof of concept
 (built to be as cheap and transparent as possible). It grounds a large language
 model in *your own* documents, so answers are accurate, **source-cited**, and
